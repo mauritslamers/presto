@@ -1,0 +1,260 @@
+<html>
+   <head>
+      <title>canvasmusic test</title>
+      <script type="text/javascript" src="canvas_music.js"></script>
+      <script type="text/javascript" src="emmentaler.js"></script>
+      <link href="canvas_music.css" rel="stylesheet" type="text/css">
+   </head>
+   <body>
+      <canvas id='example' width=1200 height=1000></canvas>
+      <script type="text/javascript">
+        var c = document.getElementById('example');
+
+        var notesStaffOne = [
+          [
+            { name: 'c', octave: 1, length: 4}, // collision tests
+            { name: 'd', octave: 1, length: 4},
+            { name: 'e', octave: 1, length: 4},
+            { name: 'f', octave: 1, length: 4},
+            { name: 'g', octave: 1, length: 4},
+            { name: 'a', octave: 1, length: 4},
+            { name: 'b', octave: 1, length: 4},
+            { name: 'c', octave: 2, length: 4},
+            { name: 'd', octave: 2, length: 4},
+            { name: 'e', octave: 2, length: 4},
+            { name: 'f', octave: 2, length: 4},
+            { name: 'g', octave: 2, length: 4},
+            { name: 'a', octave: 2, length: 4},
+            { name: 'b', octave: 2, length: 4},
+            { name: 'c', octave: 3, length: 4, markup:"proper stacking", markupDown: true }
+          ],
+          [
+            { name: 'c', octave: 1, length: 2},
+            { name: 'd', octave: 1, length: 2},
+            { name: 'e', octave: 1, length: 2},
+            { name: 'f', octave: 1, length: 2},
+            { name: 'g', octave: 1, length: 2},
+            { name: 'a', octave: 1, length: 2},
+            { name: 'b', octave: 1, length: 2},
+            { name: 'c', octave: 2, length: 2},
+            { name: 'd', octave: 2, length: 2},
+            { name: 'e', octave: 2, length: 2},
+            { name: 'f', octave: 2, length: 2},
+            { name: 'g', octave: 2, length: 2},
+            { name: 'a', octave: 2, length: 2},
+            { name: 'b', octave: 2, length: 2},
+            { name: 'c', octave: 3, length: 2}
+          ],
+          [
+            { name: 'c', octave: 1, length: 1},
+            { name: 'd', octave: 1, length: 1},
+            { name: 'e', octave: 1, length: 1},
+            { name: 'f', octave: 1, length: 1},
+            { name: 'g', octave: 1, length: 1},
+            { name: 'a', octave: 1, length: 1},
+            { name: 'b', octave: 1, length: 1},
+            { name: 'c', octave: 2, length: 1},
+            { name: 'd', octave: 2, length: 1},
+            { name: 'e', octave: 2, length: 1},
+            { name: 'f', octave: 2, length: 1},
+            { name: 'g', octave: 2, length: 1},
+            { name: 'a', octave: 2, length: 1},
+            { name: 'b', octave: 2, length: 1},
+            { name: 'c', octave: 3, length: 1}
+          ],
+          [
+            { name: 'c', octave: 2, length: 4, stemUp: true, markup: "two stems"}, // second test for quarter notes
+            { name: 'd', octave: 2, length: 4, stemDown: true}
+          ],
+          [
+            { name: 'c', octave: 2, length: 4, stemUp: true, markup: "1 stem up"}, // second test for quarter notes
+            { name: 'd', octave: 2, length: 4, stemUp: true}
+          ],
+          [
+            { name: 'c', octave: 2, length: 4, stemDown: true, markup: "1 stem down"}, // second test for quarter notes
+            { name: 'd', octave: 2, length: 4, stemDown: true}
+          ],
+          { name: "bar"},
+          [
+            { name: 'c', octave: 2, length: 4, stemUp: true, markup: "one note, two stems", markupAlign: "left"}, // prime test for quarter notes
+            { name: 'c', octave: 2, length: 4, stemDown: true}
+          ],
+          [
+            { name: 'c', octave: 2, length: 4, stemUp: true, markup: "two notes, one stem", markupDown: true, markupAlign: "left" }, // prime test for quarter notes
+            { name: 'c', octave: 2, length: 4, stemUp: true}
+          ],
+          [
+            { name: 'c', octave: 2, length: 4, stemDown: true}, // prime test for quarter notes
+            { name: 'c', octave: 2, length: 4, stemDown: true}
+          ],
+          [
+            { name: 'c', octave: 2, length: 2, stemUp: true}, // prime test for quarter notes
+            { name: 'c', octave: 2, length: 2, stemDown: true}
+          ],
+          [
+            { name: 'c', octave: 2, length: 2, stemUp: true}, // prime test for quarter notes
+            { name: 'c', octave: 2, length: 2, stemUp: true}
+          ],
+          [
+            { name: 'c', octave: 2, length: 2, stemDown: true}, // prime test for quarter notes
+            { name: 'c', octave: 2, length: 2, stemDown: true}
+          ],
+          [
+            { name: 'c', octave: 1, length: 1, stemUp: true}, // prime test for whole notes
+            { name: 'c', octave: 1, length: 1, stemDown: true}
+          ]
+        ];
+
+        var notesStaffTwo = [
+          { name: 'f', octave: -2, length: 4, markup: "Helper lines"},
+          { name: 'g', octave: -2, length: 2},
+          { name: 'a', octave: -2, length: 1},
+          { name: 'b', octave: -2, length: 4},
+          { name: 'c', octave: -1, length: 2},
+          { name: 'd', octave: -1, length: 1},
+          { name: 'e', octave: -1, length: 4},
+          { name: "bar"},
+          { name: 'c', octave: 1, length: 4},
+          { name: 'd', octave: 1, length: 2},
+          { name: 'e', octave: 1, length: 1},
+          { name: 'f', octave: 1, length: 4},
+          { name: 'g', octave: 1, length: 2},
+          { name: 'a', octave: 1, length: 1},
+          { name: "bar"},
+          { name: "rest", length: 1, markup: "All rests" },
+          { name: "rest", length: 2},
+          { name: "rest", length: 4},
+          { name: "rest", length: 8},
+          { name: "rest", length: 16},
+          { name: "dblbar"}
+        ];
+
+        var notesStaffThree = [
+          { name: 'geses', octave: 1, length: 4, noStem: true},
+          { name: 'ges', octave: 1, length: 4, noStem: true },
+          { name: 'g', octave: 1, length: 4, noStem: true, markup: "hidden clef, no stems, all accidentals", markupDown: true  },
+          { name: 'g', octave: 1, length: 4, noStem: true, natural: true },
+          { name: 'gis', octave: 1, length: 4, noStem: true },
+          { name: 'gisis', octave: 1, length: 4, noStem: true },
+          { name: "bar"},
+          { name: "dblbar"},
+          { name: "endbar"},
+          { name: "repeat_start" },
+          { name: 'a', octave: 1, length: 4, noStem: true, markup: "all barline types" },
+          { name: "repeat_end" },
+          [ // polyphony test
+            { name: 'b', octave: 1, length: 2, stemDown: true },
+            { name: 'd', octave: 2, length: 4, stemUp: true }
+          ],
+          [
+            { name: 'c', octave: 2, length: 2, stemUp: true , markup: "polyphony test" }
+          ],
+          [
+            { name: 'a', octave: 1, length: 4, stemDown: true }
+          ],
+          [
+            { name: 'b', octave: 1, length: 2, stemDown: true},
+            { name: 'b', octave: 1, length: 2, stemUp: true }
+          ]
+        ];
+
+        var notesStaffFour = [
+          { name: 'd', octave: 0, length: 1, markup: "All note forms on bass clef, including dotting", markupAlign: "left" },
+          { name: 'd', octave: 0, length: 1, dots: 1},
+          { name: 'd', octave: 0, length: 2},
+          { name: 'd', octave: 0, length: 2, dots: 1},
+          { name: 'd', octave: 0, length: 4},
+          { name: 'd', octave: 0, length: 4, dots: 1},
+          { name: 'd', octave: 0, length: 8},
+          { name: 'd', octave: 0, length: 8, dots: 1},
+          { name: 'd', octave: 0, length: 16},
+          { name: 'd', octave: 0, length: 16, dots: 1},
+          { name: 'e', octave: 0, length: 1},
+          { name: 'e', octave: 0, length: 1, dots: 1},
+          { name: 'e', octave: 0, length: 2},
+          { name: 'e', octave: 0, length: 2, dots: 1},
+          { name: 'e', octave: 0, length: 4},
+          { name: 'e', octave: 0, length: 4, dots: 1},
+          { name: 'e', octave: 0, length: 8},
+          { name: 'e', octave: 0, length: 8, dots: 1},
+          { name: 'e', octave: 0, length: 16},
+          { name: 'e', octave: 0, length: 16, dots: 1},
+        ];
+
+
+        var notesStaffFive = [
+          { name: 'b', octave: 1, length: 1, markup: "All note forms on treble clef, including dotting", markupAlign: "left"},
+          { name: 'b', octave: 1, length: 1, dots: 1},
+          { name: 'b', octave: 1, length: 2},
+          { name: 'b', octave: 1, length: 2, dots: 2},
+          { name: 'b', octave: 1, length: 4},
+          { name: 'b', octave: 1, length: 4, dots: 1},
+          { name: 'b', octave: 1, length: 8},
+          { name: 'b', octave: 1, length: 8, dots: 1},
+          { name: 'b', octave: 1, length: 16},
+          { name: 'b', octave: 1, length: 16, dots: 1},
+          { name: 'c', octave: 2, length: 1},
+          { name: 'c', octave: 2, length: 1, dots: 1},
+          { name: 'c', octave: 2, length: 2},
+          { name: 'c', octave: 2, length: 2, dots: 2},
+          { name: 'c', octave: 2, length: 4},
+          { name: 'c', octave: 2, length: 4, dots: 1},
+          { name: 'c', octave: 2, length: 8},
+          { name: 'c', octave: 2, length: 8, dots: 1},
+          { name: 'c', octave: 2, length: 16},
+          { name: 'c', octave: 2, length: 16, dots: 1},
+        ];
+        var staffOne = {
+          clef: "treble",
+          time: "4/4",
+          key: "c",
+          //hideClef: true, // test to hide clef
+          notes: notesStaffOne
+        };
+
+        var staffTwo = {
+          clef: "bass",
+          time: "3/4",
+          key: "c",
+          notes: notesStaffTwo
+        };
+
+        var staffThree = {
+          clef: "treble",
+          time: "3/4",
+          key: "c",
+          clefIsTransparent: true,
+          notes: notesStaffThree
+        };
+
+        var staffFour = {
+          clef: "bass",
+          time: "3/4",
+          key: "c",
+          notes: notesStaffFour
+        };
+
+        var staffFive = {
+          clef: "treble",
+          time: "3/4",
+          key: "c",
+          notes: notesStaffFive
+        };
+
+        var score = {
+          staffs: [staffOne, staffTwo, staffThree, staffFour, staffFive]
+          //staffs: [staffOne]
+        };
+
+        var example = new CanvasMusic("example",{
+          drawImmediately: true, // immediately draw when inserted
+          size: 35, // pt size of font
+          score: score
+        });
+
+
+      </script>
+
+      <!-- <image src="glyphs/notes_whole.png" border=1> -->
+   </body>
+</html>
