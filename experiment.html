@@ -107,8 +107,8 @@
           staffs: [staffOne, staffTwo]
         };
 
+        var p = Presto.Score.from('example');
         window.setTimeout(function () {
-          var p = Presto.Score.from('example');
           p.parse(score);
           p.notate();
           p.render();

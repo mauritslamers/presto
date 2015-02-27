@@ -3060,6 +3060,9 @@ Presto.NoteColumn = Presto.Column.extend({
     // we assume notes have been set
     if (!notes) return;
     var mix = {
+      staff: staff,
+      score: this.score,
+      parentGrob: this,
       x: 0,
       y: 0
     };
@@ -5174,11 +5177,13 @@ Presto.Score = Presto.Object.extend({
       this.canvas = canvas = canvasElement;
     }
     // check whether the style of the canvas element contains the font
-    canvas.style.fontFamily = 'Emmentaler26';
-    canvas.style.fontSize = this.fontSize + "pt";
+    // canvas.style.fontFamily = 'Emmentaler26';
+    // canvas.style.fontSize = this.fontSize + "pt";
+    canvas.style.font = this.get('fontSize') + "pt Emmentaler26";
     this._ctx = canvas.getContext('2d');
     this.width = canvas.width;
     this.height = canvas.height;
+    this._ctx.measureText("0"); // force the font to load?
     this.initFontInfo();
   },
 
