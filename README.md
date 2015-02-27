@@ -3,8 +3,8 @@
 Presto is a Canvas based music notation system for the web. It only requires an HTML5 compliant browser.
 
 The purpose of Presto is to have an as readable as possible notation system for the web which excels at excerpts and which is able to display the notation of the given music nearly instantaneous.
-It takes the LilyPond notation system as main example, trying to come as close as possible to its elegance, but never sacrificing speed in the process. Presto will therefore never be a complete notation system, but of course tries to come as close as possible.
-It uses the Lilypond font as a webfont for the best possible graphical result.
+It takes the LilyPond notation system as main example, trying to come as close as possible to its elegance, but trying to never sacrifice speed in the process. Presto will therefore never be a complete notation system, but of course tries to come as close as possible.
+It uses the Lilypond Emmentaler font as a webfont for the best possible graphical result.
 
 As Presto is very much in active development, this document contains elements which are intended to be supported at some point but in the API description below is indicated whether a feature is implemented.
 
@@ -24,36 +24,55 @@ This is done however in order to be fast in the processing and the notation as w
 and display immediately. In the future a different syntax might be added as a front end (such as the Lilypond syntax).
 
 ## How to get started
-Before you can notate anything, you will have to create a HTML page with a canvas element in it.
-This canvas element needs to have a unique id. You then have to add a script tag referring canvas_music.js.
+You'll need to create a HTML page, where you add presto.js as a script, as well as presto.css. You can take one of the html pages in this repository as an example.
+You'll then need to add a canvas element and give it an id.
+Before you can notate anything, you will have to create a HTML page with a canvas element in it. This canvas element needs to have a unique id. 
 
-Then add another script tag. In this script tag you are going to define the music you want to notate, as well as
-initialize Presto.
+You then add another script tag, in which you need to define the music and tell Presto where to put the result. A very simple example (assuming the id of the canvas elements is 'canvas'):
 
-The Presto constructor has two parameters, element and options, both of which are obligatory.
-The element parameter can be either the id name or the element itself as retrieved by document.getElementById();
+```
+var score = {
+  staffs: [
+    {
+      clef: "treble",
+      key: "c",
+      time: "4/4"
+      notes: [
+        {
+          { name: "c", length: 4, octave: 1 }
+        }
+      ]
+    }
+  ]
+}
 
-The options parameter is a hash, and should contain at least the score context you want to create a notation of.
-The easiest way to do this is to copy the example as given under the API section below.
+var p = Presto.Score.from('canvas');
+window.setTimeout(function () {
+  p.parse(score);
+  p.notate();
+  p.render();
+},100);
+
+```
+
+NOTE: you will have to call the notate() and render() functions using a time out, because the browser only starts loading the font after it is referred to the first time. When you'd get all kinds of squares instead of notation, you'll need to refresh, or re-render.
 
 ## API
 
-Presto borrows some concepts of Lilypond, the main one being the context layering.
-The main context is the score context, which has a property called staffs.
-The staffs is an array of staff contexts.
+Presto borrows quite a few concepts from Lilypond, the main one being the context layering. The main context is the score context, which has a property called staffs, which is an array of staff contexts.
 
 ### Staff
 Properties:
 
   - clef: options are "treble" and "bass"
-  - hideClef: don't draw a clef and don't reserve space for it
-  - clefIsTransparent: don't draw a clef, but reserve space for it
   - notes
+  - time: to set the time signature at the start of the bar
 
 Properties to be supported in the future
 
   - key: to automatically set all the required accendentals at the start of the bar
-  - time: to set the time signature at the start of the bar
+  - hideClef: don't draw a clef and don't reserve space for it
+  - clefIsTransparent: don't draw a clef, but reserve space for it
 
 #### Notes
 
@@ -83,16 +102,19 @@ A note is an object which can have the following properties:
     * 16 is a sixteenth
     * other types (longa / brevis) are not supported (yet)
   * dots: how many dots the note needs to have
-  * markup: A markup text which can be attached to the note
-  * markupAlign: how to align the markup, default is "center", but "left" and "right" are also supported
-  * markupDown: by default the markup is put above the staff, if this is set to true, the markup will be put under the staff
-  * noStem: if set to true, the stem will omitted, leaving only the note head
 
 As you can see the dots are not part of the length property, but stored in a separate property called dots.
 So, if you need a quarter note with two dots, you set the length to 4 and dots to 2.
 
 You can make chords by creating an array with note objects. If you want to have multiple voices, you need to set the stem directions
 yourselves.
+
+To be supported: 
+
+  * markup: A markup text which can be attached to the note
+  * markupAlign: how to align the markup, default is "center", but "left" and "right" are also supported
+  * markupDown: by default the markup is put above the staff, if this is set to true, the markup will be put under the staff
+  * noStem: if set to true, the stem will omitted, leaving only the note head
 
 ##### Rests
 
@@ -106,11 +128,16 @@ A rest is an object which can have the following properties:
     * 8 is an eighth rest
     * 16 is a sixteenth rest
     * other types are not supported (yet)
+
+To be supported: 
+
   * markup: A markup text which can be attached to the note
   * markupAlign: how to align the markup, default is "center", but "left" and "right" are also supported
   * markupDown: by default the markup is put above the staff, if this is set to true, the markup will be put under the staff
 
 ##### Barlines
+
+To be supported:
 
 A barline is an object with only a name property, where the name is one of:
 
@@ -119,41 +146,6 @@ A barline is an object with only a name property, where the name is one of:
  - endbar: end barline
  - repeat_start: start of repeat barline
  - repeat_end: end of repeat barline
-
-### API example
-
-```
-new Presto (el, {
-  drawImmediately: true, // immediately draw when inserted
-  size: 35, // pt size of font
-  urlPrefix: "", // where in the project canvas_music is located, in order to load the glyphs correctly
-  score: {
-    staffs: [
-    {
-      clef: "treble", // options are "treble", "bass"
-      time: "4/4", // not implemented yet
-      key: "c", // not implemented yet
-      notes: [
-        { name: 'g', octave: 1, length: 1},
-        { name: 'a', octave: 1, length: 2},
-        { name: 'b', octave: 1, length: 4},
-        { name: 'c', octave: 2, length: 8},
-        { name: 'd', octave: 2, length: 16},
-        { name: 'e', octave: 2, length: 16, dots: 1 },
-        { name: 'fis', octave: 2, length: 1},
-        { name: 'g', octave: 2, length: 1},
-        { name: 'a', octave: 2, length: 1},
-        { name: "bar"}
-        { name: "dblbar"},
-        { name: "repeat_start"},
-        { name: "repeat_end"}
-      ]
-    }
-  }
-});
-
-```
-
 
 ## Technical workings
 The system renders the musical notation in three phases:
