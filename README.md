@@ -153,3 +153,7 @@ The system renders the musical notation in three phases:
   1. The first phase is parsing the input into an internal grob based representation
   2. The second phase will fine tune the positioning of the internal representation
   3. The third phase renders a new representation in absolute positioned grobs which gets rendered to the canvas element.
+
+# License
+
+Presto is licensed under MIT.
