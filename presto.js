@@ -1681,9 +1681,9 @@ Presto.Symbol = Presto.Grob.extend({
     }
   }),
 
-  toString: function () {
-    return "CanvasMusic.Symbol %@, name: %@".fmt(SC.guidFor(this), this.get('name'));
-  }
+  // toString: function () {
+  //   return "CanvasMusic.Symbol %@, name: %@".fmt(SC.guidFor(this), this.get('name'));
+  // }
 });
 
 /*globals Presto*/
@@ -3060,9 +3060,6 @@ Presto.NoteColumn = Presto.Column.extend({
     // we assume notes have been set
     if (!notes) return;
     var mix = {
-      staff: staff,
-      score: this.score,
-      parentGrob: this,
       x: 0,
       y: 0
     };
@@ -5213,12 +5210,18 @@ Presto.Score = Presto.Object.extend({
    * Initializes and caches all font information. Needs to be rerun after fontSize changes
    */
   initFontInfo: function () {
+    if (Presto.fetaFontInfoBackup) { // we are re-initing, use the backup instead
+      Presto.fetaFontInfo = Presto.fetaFontInfoBackup;
+    }
+    var fIB = Presto.fetaFontInfoBackup = {}; // make a backup
     var fI = Presto.fetaFontInfo;
     var fM = Presto.fetaFontMetrics;
     var ctx = this._ctx;
     ctx.font = this.get('fontSize') + "pt Emmentaler26";
     Object.keys(fI).forEach(function (k) {
-      var val = String.fromCharCode(fI[k]);
+      var code = fI[k];
+      var val = String.fromCharCode(code);
+      fIB[k] = code; // create backup
       fI[k] = val;
       fM[k] = ctx.measureText(val);
     });
