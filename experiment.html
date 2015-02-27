@@ -1,0 +1,120 @@
+<html>
+  <head>
+    <title>Presto example</title>
+    <link href="presto.css" rel="stylesheet" type="text/css">
+  </head>
+  <body>
+      <div id="testdiv" style="font-family: 'Emmentaler26'; font-size: 64pt;"></div>
+      <canvas id='example' width=1200 height=1000></canvas>
+      <script type="text/javascript" src="javascripts/presto.js"></script>
+
+      <script type="text/javascript">
+
+
+        var notesStaffOne = [
+          //{ name: "cis", length: 4, octave: 1 },
+          [{ name: "cis", length: 4, octave: 1 },
+           { name: "dis", length: 4, octave: 1 },
+           { name: "eis", length: 4, octave: 1 },
+           { name: "fis", length: 4, octave: 1 }],
+           { name: "rest", length: 16, octave: 0},
+          { name: "rest", length: 8, octave: 0},
+          { name: "rest", length: 4, octave: 0},
+          { name: "rest", length: 2, octave: 0},
+          { name: "rest", length: 1, octave: 0},
+          { name: "d", length: 4, octave: 0, stemDirection: "down" },
+          { name: "e", length: 4, octave: 0, stemDirection: "down" },
+          { name: "f", length: 4, octave: 0, stemDirection: "down" },
+          { name: "g", length: 4, octave: 0, stemDirection: "down" },
+          { name: "a", length: 4, octave: 0, stemDirection: "down" },
+          { name: "b", length: 4, octave: 0, stemDirection: "down" },
+          { name: "c", length: 4, octave: 1, stemDirection: "down" },
+          { name: "d", length: 4, octave: 1, stemDirection: "down" },
+          { name: "e", length: 4, octave: 1, stemDirection: "down" },
+          { name: "f", length: 4, octave: 1, stemDirection: "down" },
+          { name: "g", length: 4, octave: 1, stemDirection: "down" },
+          { name: "a", length: 4, octave: 1, stemDirection: "down" },
+          { name: "b", length: 4, octave: 1, stemDirection: "down" },
+          { name: "c", length: 4, octave: 2, stemDirection: "down" },
+          { name: "d", length: 4, octave: 2, stemDirection: "down"  },
+          { name: "e", length: 4, octave: 2, stemDirection: "down"  },
+          { name: "f", length: 4, octave: 2, stemDirection: "down"  },
+          { name: "g", length: 4, octave: 2, stemDirection: "down" },
+          { name: "a", length: 4, octave: 2, stemDirection: "down" },
+          { name: "b", length: 4, octave: 2, stemDirection: "down" },
+          { name: "c", length: 4, octave: 3, stemDirection: "down" },
+          { name: "d", length: 4, octave: 3, stemDirection: "down"  },
+          { name: "e", length: 4, octave: 3, stemDirection: "down"  },
+          { name: "f", length: 4, octave: 3, stemDirection: "down"  },
+        ];
+
+
+        var notesStaffTwo = [
+          //{ name: "cis", length: 4, octave: 1 },
+          [{ name: "cis", length: 4, octave: 1 },
+           { name: "dis", length: 4, octave: 1 },
+           { name: "eis", length: 4, octave: 1 },
+           { name: "fis", length: 4, octave: 1 }],
+           { name: "rest", length: 16, octave: 0},
+          { name: "rest", length: 8, octave: 0},
+          { name: "rest", length: 4, octave: 0},
+          { name: "rest", length: 2, octave: 0},
+          { name: "rest", length: 1, octave: 0},
+          { name: "d", length: 4, octave: 0, stemDirection: "up" },
+          { name: "e", length: 4, octave: 0, stemDirection: "up" },
+          { name: "f", length: 4, octave: 0, stemDirection: "up" },
+          { name: "g", length: 4, octave: 0, stemDirection: "up" },
+          { name: "a", length: 4, octave: 0, stemDirection: "up" },
+          { name: "b", length: 4, octave: 0, stemDirection: "up" },
+          { name: "c", length: 4, octave: 1, stemDirection: "up" },
+          { name: "d", length: 4, octave: 1, stemDirection: "up" },
+          { name: "e", length: 4, octave: 1, stemDirection: "up" },
+          { name: "f", length: 4, octave: 1, stemDirection: "up" },
+          { name: "g", length: 4, octave: 1, stemDirection: "up" },
+          { name: "a", length: 4, octave: 1, stemDirection: "up" },
+          { name: "b", length: 4, octave: 1, stemDirection: "up" },
+          { name: "c", length: 4, octave: 2, stemDirection: "up" },
+          { name: "d", length: 4, octave: 2, stemDirection: "up"  },
+          { name: "e", length: 4, octave: 2, stemDirection: "up"  },
+          { name: "f", length: 4, octave: 2, stemDirection: "up"  },
+          { name: "g", length: 4, octave: 2, stemDirection: "up" },
+          { name: "a", length: 4, octave: 2, stemDirection: "up" },
+          { name: "b", length: 4, octave: 2, stemDirection: "up" },
+          { name: "c", length: 4, octave: 3, stemDirection: "up" },
+          { name: "d", length: 4, octave: 3, stemDirection: "up"  },
+          { name: "e", length: 4, octave: 3, stemDirection: "up"  },
+          { name: "f", length: 4, octave: 3, stemDirection: "up"  },
+        ];
+
+        var staffOne = {
+          clef: "treble",
+          time: "4/4",
+          key: "cis",
+          //hideClef: true, // test to hide clef
+          notes: notesStaffOne
+        };
+
+        var staffTwo = {
+          clef: "treble",
+          time: "4/4",
+          key: "cis",
+          //hideClef: true, // test to hide clef
+          notes: notesStaffTwo
+        };
+
+        var score = {
+          //staffs: [staffOne, staffTwo, staffThree, staffFour, staffFive]
+          staffs: [staffOne, staffTwo]
+        };
+
+        var p = Presto.Score.from('example');
+        window.setTimeout(function () {
+          p.parse(score);
+          p.notate();
+          p.render();
+        }, 200);
+
+      </script>
+
+  </body>
+</html>
