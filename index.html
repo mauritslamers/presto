@@ -1,0 +1,240 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="chrome=1">
+    <title>Presto by mauritslamers</title>
+
+    <link rel="stylesheet" href="stylesheets/styles.css">
+    <link rel="stylesheet" href="stylesheets/pygment_trac.css">
+    <script src="javascripts/scale.fix.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+    <!--[if lt IE 9]>
+    <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+  </head>
+  <body>
+    <div class="wrapper">
+      <header>
+        <h1 class="header">Presto</h1>
+        <p class="header">A Canvas based Music Notation system for the web</p>
+
+        <ul>
+          <li class="download"><a class="buttons" href="https://github.com/mauritslamers/presto/zipball/master">Download ZIP</a></li>
+          <li class="download"><a class="buttons" href="https://github.com/mauritslamers/presto/tarball/master">Download TAR</a></li>
+          <li><a class="buttons github" href="https://github.com/mauritslamers/presto">View On GitHub</a></li>
+        </ul>
+
+        <p class="header">This project is maintained by <a class="header name" href="https://github.com/mauritslamers">mauritslamers</a></p>
+
+
+      </header>
+      <section>
+        <h1>
+<a id="presto---a-simple-notation-system-for-the-web" class="anchor" href="#presto---a-simple-notation-system-for-the-web" aria-hidden="true"><span class="octicon octicon-link"></span></a>Presto - A simple notation system for the web</h1>
+
+<p>Presto is a Canvas based music notation system for the web. It only requires an HTML5 compliant browser.</p>
+
+<p>The purpose of Presto is to have an as readable as possible notation system for the web which excels at excerpts and which is able to display the notation of the given music nearly instantaneous.
+It takes the LilyPond notation system as main example, trying to come as close as possible to its elegance, but trying to never sacrifice speed in the process. Presto will therefore never be a complete notation system, but of course tries to come as close as possible.
+It uses the Lilypond Emmentaler font as a webfont for the best possible graphical result.</p>
+
+<p>As Presto is very much in active development, this document contains elements which are intended to be supported at some point but in the API description below is indicated whether a feature is implemented.</p>
+
+<h2>
+<a id="things-to-keep-in-mind" class="anchor" href="#things-to-keep-in-mind" aria-hidden="true"><span class="octicon octicon-link"></span></a>Things to keep in mind</h2>
+
+<p>Presto in the current state doesn't do a lot for you, except printing the notation and try to make that look (sort of) right. It will simply print whatever you give it, but it doesn't in any way make sure that your notation is right. This means (among other things):</p>
+
+<ul>
+<li>it doesn't check whether bars are full</li>
+<li>it doesn't remove double accidentals in a bar, so you will get an accidental every time you put a note with a accidental</li>
+<li>it doesn't check voicings (and it doesn't have a voice context), meaning that you have to manually set the stem direction on every note, and it might be that polyphony doesn't work correctly. It tries however to correctly display the polyphonic aspects of note heads and stems (see the tests for an example)</li>
+<li>it doesn't properly align anything (in a bar)</li>
+<li>it doesn't support beaming of eighth or sixteenth notes</li>
+<li>it draws a bar as wide as the width of the canvas element</li>
+</ul>
+
+<p>The way you currently have to enter the music is plain JavaScript object and array literals. This can be complex for an ordinary user.
+This is done however in order to be fast in the processing and the notation as well as be able to retrieve the notation from a server
+and display immediately. In the future a different syntax might be added as a front end (such as the Lilypond syntax).</p>
+
+<h2>
+<a id="how-to-get-started" class="anchor" href="#how-to-get-started" aria-hidden="true"><span class="octicon octicon-link"></span></a>How to get started</h2>
+
+<p>You'll need to create a HTML page, where you add presto.js as a script, as well as presto.css. You can take one of the html pages in this repository as an example.
+You'll then need to add a canvas element and give it an id.
+Before you can notate anything, you will have to create a HTML page with a canvas element in it. This canvas element needs to have a unique id. </p>
+
+<p>You then add another script tag, in which you need to define the music and tell Presto where to put the result. A very simple example (assuming the id of the canvas elements is 'canvas'):</p>
+
+<pre><code>var score = {
+  staffs: [
+    {
+      clef: "treble",
+      key: "c",
+      time: "4/4"
+      notes: [
+        {
+          { name: "c", length: 4, octave: 1 }
+        }
+      ]
+    }
+  ]
+}
+
+var p = Presto.Score.from('canvas');
+window.setTimeout(function () {
+  p.parse(score);
+  p.notate();
+  p.render();
+},100);
+
+</code></pre>
+
+<p>NOTE: you will have to call the notate() and render() functions using a time out, because the browser only starts loading the font after it is referred to the first time. When you'd get all kinds of squares instead of notation, you'll need to refresh, or re-render.</p>
+
+<h2>
+<a id="api" class="anchor" href="#api" aria-hidden="true"><span class="octicon octicon-link"></span></a>API</h2>
+
+<p>Presto borrows quite a few concepts from Lilypond, the main one being the context layering. The main context is the score context, which has a property called staffs, which is an array of staff contexts.</p>
+
+<h3>
+<a id="staff" class="anchor" href="#staff" aria-hidden="true"><span class="octicon octicon-link"></span></a>Staff</h3>
+
+<p>Properties:</p>
+
+<ul>
+<li>clef: options are "treble" and "bass"</li>
+<li>notes</li>
+<li>time: to set the time signature at the start of the bar</li>
+</ul>
+
+<p>Properties to be supported in the future</p>
+
+<ul>
+<li>key: to automatically set all the required accendentals at the start of the bar</li>
+<li>hideClef: don't draw a clef and don't reserve space for it</li>
+<li>clefIsTransparent: don't draw a clef, but reserve space for it</li>
+</ul>
+
+<h4>
+<a id="notes" class="anchor" href="#notes" aria-hidden="true"><span class="octicon octicon-link"></span></a>Notes</h4>
+
+<p>Every staff contains a propery called notes, which is an array with notation elements. (rename?)
+The array contains a set of object literals, which can be:</p>
+
+<ul>
+<li>notes</li>
+<li>rests</li>
+<li>barlines</li>
+</ul>
+
+<h5>
+<a id="note" class="anchor" href="#note" aria-hidden="true"><span class="octicon octicon-link"></span></a>Note</h5>
+
+<p>A note is an object which can have the following properties:</p>
+
+<ul>
+<li>name: The name of the note. The names supported follow the dutch naming scheme (for now):
+
+<ul>
+<li>c, d, e, f, g, a, b</li>
+<li>cis, dis, eis, fis, gis, ais, bis</li>
+<li>ces, des, es, fes, ges, as, bes</li>
+<li>for a doublesharp add "is" as in "cisis"</li>
+<li>for a doubleflat add "es" as in "eses"</li>
+</ul>
+</li>
+<li>octave: a number, where 1 is the "central" octave, containing the central c.</li>
+<li>length: a number, where
+
+<ul>
+<li>1 is a whole note</li>
+<li>2 is a half note</li>
+<li>4 is a quarter</li>
+<li>8 is an eighth</li>
+<li>16 is a sixteenth</li>
+<li>other types (longa / brevis) are not supported (yet)</li>
+</ul>
+</li>
+<li>dots: how many dots the note needs to have</li>
+</ul>
+
+<p>As you can see the dots are not part of the length property, but stored in a separate property called dots.
+So, if you need a quarter note with two dots, you set the length to 4 and dots to 2.</p>
+
+<p>You can make chords by creating an array with note objects. If you want to have multiple voices, you need to set the stem directions
+yourselves.</p>
+
+<p>To be supported: </p>
+
+<ul>
+<li>markup: A markup text which can be attached to the note</li>
+<li>markupAlign: how to align the markup, default is "center", but "left" and "right" are also supported</li>
+<li>markupDown: by default the markup is put above the staff, if this is set to true, the markup will be put under the staff</li>
+<li>noStem: if set to true, the stem will omitted, leaving only the note head</li>
+</ul>
+
+<h5>
+<a id="rests" class="anchor" href="#rests" aria-hidden="true"><span class="octicon octicon-link"></span></a>Rests</h5>
+
+<p>A rest is an object which can have the following properties:</p>
+
+<ul>
+<li>name: "rest",</li>
+<li>length: a number representing the length of the rest, where:
+
+<ul>
+<li>1 is a whole rest</li>
+<li>2 is a half rest</li>
+<li>4 is a quarter rest</li>
+<li>8 is an eighth rest</li>
+<li>16 is a sixteenth rest</li>
+<li>other types are not supported (yet)</li>
+</ul>
+</li>
+</ul>
+
+<p>To be supported: </p>
+
+<ul>
+<li>markup: A markup text which can be attached to the note</li>
+<li>markupAlign: how to align the markup, default is "center", but "left" and "right" are also supported</li>
+<li>markupDown: by default the markup is put above the staff, if this is set to true, the markup will be put under the staff</li>
+</ul>
+
+<h5>
+<a id="barlines" class="anchor" href="#barlines" aria-hidden="true"><span class="octicon octicon-link"></span></a>Barlines</h5>
+
+<p>To be supported:</p>
+
+<p>A barline is an object with only a name property, where the name is one of:</p>
+
+<ul>
+<li>bar: single barline</li>
+<li>dblbar: double barline</li>
+<li>endbar: end barline</li>
+<li>repeat_start: start of repeat barline</li>
+<li>repeat_end: end of repeat barline</li>
+</ul>
+
+<h2>
+<a id="technical-workings" class="anchor" href="#technical-workings" aria-hidden="true"><span class="octicon octicon-link"></span></a>Technical workings</h2>
+
+<p>The system renders the musical notation in three phases:</p>
+
+<ol>
+<li>The first phase is parsing the input into an internal grob based representation</li>
+<li>The second phase will fine tune the positioning of the internal representation</li>
+<li>The third phase renders a new representation in absolute positioned grobs which gets rendered to the canvas element.</li>
+</ol>
+      </section>
+      <footer>
+        <p><small>Hosted on <a href="http://pages.github.com">GitHub Pages</a> using the Dinky theme</small></p>
+      </footer>
+    </div>
+    <!--[if !IE]><script>fixScale(document);</script><![endif]-->
+		
+  </body>
+</html>
