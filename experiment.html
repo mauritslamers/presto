@@ -19,7 +19,7 @@
       <script type="text/javascript" src="lib/staff.js"></script>
       <script type="text/javascript" src="lib/score.js"></script>
       <script type="text/javascript">
-        var p = Presto.Score.from('example');
+
 
         var notesStaffOne = [
           //{ name: "cis", length: 4, octave: 1 },
@@ -27,7 +27,49 @@
            { name: "dis", length: 4, octave: 1 },
            { name: "eis", length: 4, octave: 1 },
            { name: "fis", length: 4, octave: 1 }],
-          { name: "c", length: 8, octave: 0, stemDirection: "up" },
+           { name: "rest", length: 16, octave: 0},
+          { name: "rest", length: 8, octave: 0},
+          { name: "rest", length: 4, octave: 0},
+          { name: "rest", length: 2, octave: 0},
+          { name: "rest", length: 1, octave: 0},
+          { name: "d", length: 4, octave: 0, stemDirection: "down" },
+          { name: "e", length: 4, octave: 0, stemDirection: "down" },
+          { name: "f", length: 4, octave: 0, stemDirection: "down" },
+          { name: "g", length: 4, octave: 0, stemDirection: "down" },
+          { name: "a", length: 4, octave: 0, stemDirection: "down" },
+          { name: "b", length: 4, octave: 0, stemDirection: "down" },
+          { name: "c", length: 4, octave: 1, stemDirection: "down" },
+          { name: "d", length: 4, octave: 1, stemDirection: "down" },
+          { name: "e", length: 4, octave: 1, stemDirection: "down" },
+          { name: "f", length: 4, octave: 1, stemDirection: "down" },
+          { name: "g", length: 4, octave: 1, stemDirection: "down" },
+          { name: "a", length: 4, octave: 1, stemDirection: "down" },
+          { name: "b", length: 4, octave: 1, stemDirection: "down" },
+          { name: "c", length: 4, octave: 2, stemDirection: "down" },
+          { name: "d", length: 4, octave: 2, stemDirection: "down"  },
+          { name: "e", length: 4, octave: 2, stemDirection: "down"  },
+          { name: "f", length: 4, octave: 2, stemDirection: "down"  },
+          { name: "g", length: 4, octave: 2, stemDirection: "down" },
+          { name: "a", length: 4, octave: 2, stemDirection: "down" },
+          { name: "b", length: 4, octave: 2, stemDirection: "down" },
+          { name: "c", length: 4, octave: 3, stemDirection: "down" },
+          { name: "d", length: 4, octave: 3, stemDirection: "down"  },
+          { name: "e", length: 4, octave: 3, stemDirection: "down"  },
+          { name: "f", length: 4, octave: 3, stemDirection: "down"  },
+        ];
+
+
+        var notesStaffTwo = [
+          //{ name: "cis", length: 4, octave: 1 },
+          [{ name: "cis", length: 4, octave: 1 },
+           { name: "dis", length: 4, octave: 1 },
+           { name: "eis", length: 4, octave: 1 },
+           { name: "fis", length: 4, octave: 1 }],
+           { name: "rest", length: 16, octave: 0},
+          { name: "rest", length: 8, octave: 0},
+          { name: "rest", length: 4, octave: 0},
+          { name: "rest", length: 2, octave: 0},
+          { name: "rest", length: 1, octave: 0},
           { name: "d", length: 4, octave: 0, stemDirection: "up" },
           { name: "e", length: 4, octave: 0, stemDirection: "up" },
           { name: "f", length: 4, octave: 0, stemDirection: "up" },
@@ -52,7 +94,6 @@
           { name: "d", length: 4, octave: 3, stemDirection: "up"  },
           { name: "e", length: 4, octave: 3, stemDirection: "up"  },
           { name: "f", length: 4, octave: 3, stemDirection: "up"  },
-
         ];
 
         var staffOne = {
@@ -63,15 +104,24 @@
           notes: notesStaffOne
         };
 
-        var score = {
-          //staffs: [staffOne, staffTwo, staffThree, staffFour, staffFive]
-          staffs: [staffOne]
+        var staffTwo = {
+          clef: "treble",
+          time: "4/4",
+          key: "cis",
+          //hideClef: true, // test to hide clef
+          notes: notesStaffTwo
         };
 
-        p.parse(score);
+        var score = {
+          //staffs: [staffOne, staffTwo, staffThree, staffFour, staffFive]
+          staffs: [staffOne, staffTwo]
+        };
+
+        var p = Presto.Score.from('example');
         window.setTimeout(function () {
-            p.notate();
-            p.render();
+          p.parse(score);
+          p.notate();
+          p.render();
         },100);
 
         // window.setTimeout(function () {
