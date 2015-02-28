@@ -1228,7 +1228,7 @@ Presto.Grob = Presto.Object.extend({
   y: null,
 
   /**
-   * The parentGrob of this grob
+   * The parentGrob of this grob, currently unused
    * @type {Presto.Grob}
    */
   parentGrob: null,
@@ -5076,14 +5076,12 @@ Presto.Score = Presto.Object.extend({
     if (!staffDistance) this.staffDistance = staffDistance = 16 * size;
     var vOffset = 4 * size;
     var s = this._staffs = Presto.Array.create(notation.staffs.map(function (s, i) {
-      var obj = Presto.mixin(s, {
+      return Presto.Staff.create(s, {
         x: 0,
         y: vOffset + (i * staffDistance),
         width: this.get('width'),
-        parentGrob: this._rootGrob,
         score: this
       });
-      return Presto.Staff.create(obj);
     }, this));
     this._rootGrob.addChildGrobs(s);
   },
