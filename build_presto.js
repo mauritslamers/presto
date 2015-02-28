@@ -9,10 +9,12 @@ var files = [
   "lib/grob.js",
   "lib/symbol.js",
   "lib/line.js",
+  "lib/barline.js",
   "lib/stem.js",
   "lib/note.js",
   "lib/rest.js",
   "lib/column.js",
+  "lib/time_signature.js",
   "lib/note_column.js",
   "lib/staff.js",
   "lib/score.js"
