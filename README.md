@@ -1,6 +1,6 @@
 # Presto - A simple notation system for the web
 
-Presto is a Canvas based music notation system for the web. It only requires an HTML5 compliant browser.
+Presto is a Canvas based music notation system for the web. It only requires an HTML5 compliant browser. Presto is very much in alpha state, a lot of things are not supported yet.
 
 The purpose of Presto is to have an as readable as possible notation system for the web which excels at excerpts and which is able to display the notation of the given music nearly instantaneous.
 It takes the LilyPond notation system as main example, trying to come as close as possible to its elegance, but trying to never sacrifice speed in the process. Presto will therefore never be a complete notation system, but of course tries to come as close as possible.
