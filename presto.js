@@ -1962,6 +1962,7 @@ Presto.Note = Presto.Grob.extend({
    */
   width: function () {
     var ret = 0;
+    //debugger;
     // this is not as easy as it looks
     // the width of a note is
     // the smallest x value (which can either be negative, zero or positive)
@@ -1978,12 +1979,6 @@ Presto.Note = Presto.Grob.extend({
     });
     ret = Math.abs(smallest) + biggest;
     return ret;
-    // // the width of a grob is the width of the contents, and the marginLeft and marginRight
-    // var ret = this.get('marginLeft') + this.get('marginRight');
-    // if (!this.get('skipWidth')) {
-    //   ret += this.get('widthOfChildGrobs');
-    // }
-    // return ret;
   },
 
   /**
@@ -2061,7 +2056,6 @@ Presto.Note = Presto.Grob.extend({
    */
   addAccidental: function () {
     var name = this.get('name'),
-        size = this.get('size'),
         whichAcc = this.get('accidentalName'),
         acc;
 
@@ -2073,7 +2067,7 @@ Presto.Note = Presto.Grob.extend({
       score: this.score,
       staff: this.staff
     });
-    acc.x = -acc.get('width') / 2;
+    acc.x = -acc.get('width') * 1.5;
     this.accidental = acc;
     this.addChildGrob(acc);
     return this;
@@ -2129,13 +2123,13 @@ Presto.Note = Presto.Grob.extend({
     var helperLines = this.helperLines;
     if (!helperLines) return; // nothing to do
 
-    var helperLineWidth = this._noteHeadWidth / 8;
+    var helperLineWidth = this._noteHeadWidth / 4;
 
     helperLines.forEach(function (l) {
       this.addChildGrob(Presto.Line.create({
         x: -helperLineWidth,
         y: l.y,
-        toX: (this._noteHeadWidth / 2) + helperLineWidth,
+        toX: this._noteHeadWidth + helperLineWidth,
         toY: l.y,
         lineWidth: 2
       }));
@@ -2194,7 +2188,7 @@ Presto.Note = Presto.Grob.extend({
     // the x position of the stem upwards doesn't nicely fit with noteheadwith / 2, and needs
     // a correction, which is now half a staff space, but it is not sure this will hold up
     // when scaling.
-    var startX = stemUp ? (this._noteHeadWidth / 2) - (staffSpace / 2): this.x;
+    var startX = stemUp ? (this._noteHeadWidth) - (staffSpace / 2): this.x;
     var toY = stemUp ? stemLength * -1 : stemLength;
 
     this.addChildGrob(Presto.Stem.create({
@@ -3151,8 +3145,28 @@ Presto.NoteColumn = Presto.Column.extend({
       }
     });
     this.x += offset; // create the extra space required by moving the note column
+    this._offset = offset;
   },
 
+  width: function () {
+    // width of a note column is the minimum value of the accidental
+    // var smallest = 0, biggest = 0;
+    // this.childGrobs.forEach(function (cg) {
+    //   var rightmost;
+    //   if (cg.accidental) {
+    //     if (cg.accidental.x < smallest) smallest = cg.accidental.x;
+    //     rightmost = cg.get('width') + cg.accidental.x; //
+    //     if (rightmost > biggest) biggest = rightmost;
+    //   }
+    //   else if (cg.get('width') > biggest) biggest = cg.get('width');
+    // });
+    // // now, the trick is that the width should count from 0, not from the
+    // this.x += Math.abs(smallest);
+    // return biggest + smallest;
+    var w = this.childGrobs.getEach('width');
+    //return w.get('@max') - (this._offset || 0); // correct for already performed offset
+    return w.get('@max');
+  },
 
   /**
    * Needs to be invoked in order to perform the proper stacking of notes (see explanation below)
@@ -3241,13 +3255,13 @@ Presto.NoteColumn = Presto.Column.extend({
     else if (topNote.get('stemDown') && bottomNote.get('stemDown')) {
       if (notShifted) {
         // topnote to the right, but buttom note loses stem
-        this._shiftNote(topNote, (bottomNote.get('_noteHeadWidth') / 2) - 1);
+        this._shiftNote(topNote, (bottomNote.get('_noteHeadWidth')) - 1);
         bottomNote.removeStem();
       }
     }
     else if (topNote.get('stemUp') && bottomNote.get('stemUp')) {
       if (notShifted) {
-        this._shiftNote(topNote, (bottomNote.get('_noteHeadWidth') / 2) - 1);
+        this._shiftNote(topNote, (bottomNote.get('_noteHeadWidth')) - 1);
         topNote.removeStem();
       }
     }
@@ -4329,7 +4343,7 @@ Presto.Staff = Presto.Grob.extend({
       console.log(ret);
       throw new Error("Object " + ret + " is returning undefined for width??");
     }
-    this._currentX += w;
+    this._currentX += w + staffSpace * 3;
     // add
     this._currentCursorAt += 1;
     return ret;
@@ -5067,6 +5081,7 @@ Presto.Score = Presto.Object.extend({
    * @return {Presto.Score}          current instance
    */
   parse: function (notation) {
+    this.initFontInfo();
     if (this._rootGrob) { // we are asked to parse again, remove rootgrob
       this._rootGrob.childGrobs = null;
     }
@@ -5147,6 +5162,7 @@ Presto.Score = Presto.Object.extend({
   render: function () {
     // before rendering, blank the canvas element
     this.clear();
+
     var absPos = this._rootGrob.render(0,0);
     absPos.forEach(function (g) {
       g.render(this._ctx);
