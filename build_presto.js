@@ -5,6 +5,7 @@ var fs = require('fs');
 var files = [
   'license.js',
   "lib/base.js",
+  "lib/lilypond_syntax.js",
   "lib/font_info.js",
   "lib/grob.js",
   "lib/symbol.js",

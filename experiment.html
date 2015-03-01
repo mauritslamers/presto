@@ -5,8 +5,40 @@
   </head>
   <body>
       <div id="testdiv" style="font-family: 'Emmentaler26'; font-size: 64pt;"></div>
-      <canvas id='example' width=1200 height=1000></canvas>
+      <textarea style="width: 800px; height: 200px; font: 12pt Courier;" id="code" onChange="codeDidChange();">
+\score {
+  <<
+  \new Staff {
+    \clef treble
+    \time 2/2
+    <<
+    \new Voice {
+      \relative c'' {
+        c4. bes8 a4 g4
+      }
+    }
+    \new Voice {
+      \relative c'' {
+        c4. bes8 a4 g4
+      }
+    }
+    >>
+  }
+  \new Staff {
+    \clef treble
+    \time 2/2
+    \relative c'' {
+      c4. bes8 a4 g4
+    }
+  }
+  >>
+}
+
+      </textarea>
+      <input type="button" onClick="codeDidChange();" value="Update"></input>
+      <canvas id='example' width=1200 height=500></canvas>
       <script type="text/javascript" src="lib/base.js"></script>
+      <script type="text/javascript" src="lib/lilypond_syntax.js"></script>
       <script type="text/javascript" src="lib/font_info.js"></script>
       <script type="text/javascript" src="lib/grob.js"></script>
       <script type="text/javascript" src="lib/symbol.js"></script>
@@ -21,6 +53,8 @@
       <script type="text/javascript" src="lib/staff.js"></script>
       <script type="text/javascript" src="lib/score.js"></script>
       <script type="text/javascript">
+
+
 
 
         // var notesStaffOne = [
@@ -167,6 +201,15 @@
           p.notate();
           p.render();
         },100);
+
+        function codeDidChange () {
+          console.log('codeDidChange');
+          var code = document.getElementById('code').textContent;
+          var parsedScore = Presto.lilypondParser.parseLilypond(code);
+          p.parse(parsedScore);
+          p.notate();
+          p.render();
+        }
 
         // window.setTimeout(function () {
         //   var c = document.getElementById('example');
