@@ -81,7 +81,7 @@ The array contains a set of object literals, which can be:
 
   * notes
   * rests
-  * barlines
+  * barline type
 
 ##### Note
 
