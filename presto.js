@@ -903,7 +903,7 @@ Presto.lilypondParser = {
     var v = voiceContent;
     var ret = [];
     var len = v.length;
-    var curItem, match, cmd, chord, next, note;
+    var curItem, match, cmd, chord, next, note, endOfNote;
     var prev = {
       length: 4
     };
@@ -967,7 +967,11 @@ Presto.lilypondParser = {
         continue;
       }
       // normal notes we assume
-      note = v.slice(i, v.indexOf(" ", i));
+      endOfNote = v.indexOf(" ", i);
+      if (endOfNote === -1) { // only one reason it seems: end of string
+        endOfNote = v.length;
+      }
+      note = v.slice(i, endOfNote);
       if (inRelative) {
         prev = this.parseNote(note, prev);
       }
@@ -1005,9 +1009,9 @@ Presto.lilypondParser = {
     var prev = reference;
     notes.split(" ").forEach(function (n) {
       if (!n) return;
-      n = this.parseNote(n, prev);
+      n = this.parseNote(n, prev, reflength);
       if (n) {
-        n.length = length;
+        if (!n.length) n.length = length;
         if (dots) n.dots = dots.length;
         prev = n;
         ret.push(n);
@@ -1022,7 +1026,7 @@ Presto.lilypondParser = {
    * @param  {Hash} reference Optional: if given, it will take this as relative reference
    * @return {[type]}           [description]
    */
-  parseNote: function (note, reference) {
+  parseNote: function (note, reference, prevLength) {
     // this regex gives us 4 groups:
     // match[1] => note name
     // match[2] => commas or apostrophes
@@ -1056,12 +1060,14 @@ Presto.lilypondParser = {
       if (c === ",") octave -= 1;
     });
 
-    var length = 4;
-    if (reference) {
-      length = match[3]? parseInt(match[3], 10) : reference.length;
-    }
-    else {
-      if (this._previousNote && this._previousNote.length) length = this._previousNote.length;
+    //var length = 4;
+    var length = match[3]? parseInt(match[3], 10): null;
+    if (!length) {
+      if (reference) length = reference.length;
+      else if (prevLength) {
+        length = prevLength;
+        // if (this._previousNote && this._previousNote.length) length = this._previousNote.length;
+      }
     }
 
     var ret = {
