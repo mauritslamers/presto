@@ -815,7 +815,7 @@ Presto.lilypondParser = {
    * regex to match (and parse) a note
    * @type {RegExp}
    */
-  _noteRegex: /\b([a-g](?:es|is|s)?)([',]*)(1|2|4|8|16)*(\.*)?/,
+  _noteRegex: /\b([a-g](?:es|is|s)?)([',]*)(16|2|4|8|1)*(\.*)?/,
 
   /**
    * regex to match (and parse) a relative block
@@ -838,7 +838,6 @@ Presto.lilypondParser = {
     this._previousNote = null;
     score = this.findBlock("score", code);
     staffs = this.findBlock("Staff", code);
-    debugger;
     if (score.length === 0 && staffs.length === 0) { // go to simple mode
       ret.staffs[0] = {
         notes: [[this.parseVoice(code)]]
@@ -2628,14 +2627,15 @@ Presto.Note = Presto.Grob.extend({
     var dotObj;
     var staffSize = this.score.get('size');
     var extraOffset = this._noteHeadWidth + staffSize;
+    var verticalShift = (this.positionOnStaff % 2) ? 0 : -staffSize;
 
     for (var i = 0; i < dots; i += 1) {
       dotObj = Presto.Symbol.create({
         staff: this.staff,
         score: this.score,
         name: "dots.dot",
-        x:  extraOffset,
-        y: 0,
+        x: extraOffset,
+        y: verticalShift,
         ignoreWidth: true
       });
       extraOffset += dotObj.get('width');
