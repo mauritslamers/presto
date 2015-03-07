@@ -4,15 +4,13 @@
     <link href="presto.css" rel="stylesheet" type="text/css">
   </head>
   <body>
-      <div id="testdiv" style="font: 12pt Courier;">
+      <div id="testdiv" style="font: 10pt Courier;">
         <p>
-          In the textarea below you can write or paste a bit of Lilypond code to be parsed.<br>
+          In the textarea below you can write or paste a bit of Lilypond code to be parsed.
           Please note that only a subset of the Lilypond code is currently supported and
           that the parsing is much more strict.
-        </p>
-        <p>
           The parsing supports two modes: a simple mode and a complex mode.
-          For a simple melody you can use notes and \relative. <br>
+          For a simple melody you can use notes and \relative.
           For anything more complex the use of \score and \new Staff is required.<br>
         </p>
         <p>
@@ -27,7 +25,7 @@
           <li> the use of \relative is only supported inside a staff </li>
         </ul>
       </div>
-      <textarea style="width: 800px; height: 200px; font: 12pt Courier;" id="code" onChange="codeDidChange();">
+      <textarea style="width: 800px; height: 200px; font: 11pt Courier;" id="code" onChange="codeDidChange();">
 \score {
   <<
   \new Staff {
