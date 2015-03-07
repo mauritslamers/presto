@@ -1,110 +1,246 @@
 <html>
   <head>
-    <title>Presto example</title>
+    <title>Presto test</title>
     <link href="presto.css" rel="stylesheet" type="text/css">
   </head>
   <body>
-      <div id="testdiv" style="font-family: 'Emmentaler26'; font-size: 64pt;"></div>
-      <script type="text/javascript" src="presto.js"></script>
-      <canvas id='example' width=1200 height=1000></canvas>
+      <div id="testdiv" style="font: 12pt Courier;">
+        <p>
+          In the textarea below you can write or paste a bit of Lilypond code to be parsed.<br>
+          Please note that only a subset of the Lilypond code is currently supported and
+          that the parsing is much more strict.
+        </p>
+        <p>
+          The parsing supports two modes: a simple mode and a complex mode.
+          For a simple melody you can use notes and \relative. <br>
+          For anything more complex the use of \score and \new Staff is required.<br>
+        </p>
+        <p>
+        In both modes the use of { and } is required to open and close contexts as well as \relative.
+        <br>
+        In complex mode:
+        <ul>
+          <li> one score block is allowed, plus one or more staffs.</li>
+          <li> the parallel operators (<< and >>) are supported at score and staff level.</li>
+          <li> The Voice context is supported, but only in the \new Voice {} syntax, the short hand is not  </li>
+          <li> Inside a voice context, \voiceOne and \voiceTwo are recognized, but ignored for the moment</li>
+          <li> the use of \relative is only supported inside a staff </li>
+        </ul>
+      </div>
+      <textarea style="width: 800px; height: 200px; font: 12pt Courier;" id="code" onChange="codeDidChange();">
+\score {
+  <<
+  \new Staff {
+    \clef treble
+    \time 2/2
+    <<
+    \new Voice {
+      \relative c'' {
+        c4. bes8 a4 g4
+      }
+    }
+    \new Voice {
+      \relative c'' {
+        c4. bes8 a4 g4
+      }
+    }
+    >>
+  }
+  \new Staff {
+    \clef treble
+    \time 2/2
+    \relative c'' {
+      c4. bes8 a4 g4
+    }
+  }
+  >>
+}
 
+      </textarea>
+      <input type="button" onClick="codeDidChange();" value="Update"></input>
+      <canvas id='example' width=1200 height=500></canvas>
+      <script type="text/javascript" src="lib/base.js"></script>
+      <script type="text/javascript" src="lib/lilypond_syntax.js"></script>
+      <script type="text/javascript" src="lib/font_info.js"></script>
+      <script type="text/javascript" src="lib/grob.js"></script>
+      <script type="text/javascript" src="lib/symbol.js"></script>
+      <script type="text/javascript" src="lib/line.js"></script>
+      <script type="text/javascript" src="lib/barline.js"></script>
+      <script type="text/javascript" src="lib/stem.js"></script>
+      <script type="text/javascript" src="lib/note.js"></script>
+      <script type="text/javascript" src="lib/rest.js"></script>
+      <script type="text/javascript" src="lib/column.js"></script>
+      <script type="text/javascript" src="lib/time_signature.js"></script>
+      <script type="text/javascript" src="lib/note_column.js"></script>
+      <script type="text/javascript" src="lib/staff.js"></script>
+      <script type="text/javascript" src="lib/score.js"></script>
       <script type="text/javascript">
 
 
+
+
+        // var notesStaffOne = [
+        //   //{ name: "cis", length: 4, octave: 1 },
+        //   [{ name: "cis", length: 4, octave: 1 },
+        //    { name: "dis", length: 4, octave: 1 },
+        //    { name: "eis", length: 4, octave: 1 },
+        //    { name: "fis", length: 4, octave: 1 }],
+        //    { name: "rest", length: 16, octave: 0},
+        //   { name: "rest", length: 8, octave: 0},
+        //   { name: "rest", length: 4, octave: 0},
+        //   { name: "rest", length: 2, octave: 0},
+        //   { name: "rest", length: 1, octave: 0},
+        //   { name: "d", length: 4, octave: 0, stemDirection: "down" },
+        //   { name: "e", length: 4, octave: 0, stemDirection: "down" },
+        //   { name: "f", length: 4, octave: 0, stemDirection: "down" },
+        //   { name: "g", length: 4, octave: 0, stemDirection: "down" },
+        //   { name: "a", length: 4, octave: 0, stemDirection: "down" },
+        //   { name: "b", length: 4, octave: 0, stemDirection: "down" },
+        //   { name: "c", length: 4, octave: 1, stemDirection: "down" },
+        //   { name: "d", length: 4, octave: 1, stemDirection: "down" },
+        //   { name: "e", length: 4, octave: 1, stemDirection: "down" },
+        //   { name: "f", length: 4, octave: 1, stemDirection: "down" },
+        //   { name: "g", length: 4, octave: 1, stemDirection: "down" },
+        //   { name: "a", length: 4, octave: 1, stemDirection: "down" },
+        //   { name: "b", length: 4, octave: 1, stemDirection: "down" },
+        //   { name: "c", length: 4, octave: 2, stemDirection: "down" },
+        //   { name: "d", length: 4, octave: 2, stemDirection: "down"  },
+        //   { name: "e", length: 4, octave: 2, stemDirection: "down"  },
+        //   { name: "f", length: 4, octave: 2, stemDirection: "down"  },
+        //   { name: "g", length: 4, octave: 2, stemDirection: "down" },
+        //   { name: "a", length: 4, octave: 2, stemDirection: "down" },
+        //   { name: "b", length: 4, octave: 2, stemDirection: "down" },
+        //   { name: "c", length: 4, octave: 3, stemDirection: "down" },
+        //   { name: "d", length: 4, octave: 3, stemDirection: "down"  },
+        //   { name: "e", length: 4, octave: 3, stemDirection: "down"  },
+        //   { name: "f", length: 4, octave: 3, stemDirection: "down"  },
+        // ];
+
+
+        // var notesStaffTwo = [
+        //   //{ name: "cis", length: 4, octave: 1 },
+        //   [{ name: "cis", length: 4, octave: 1 },
+        //    { name: "dis", length: 4, octave: 1 },
+        //    { name: "eis", length: 4, octave: 1 },
+        //    { name: "fis", length: 4, octave: 1 }],
+        //    { name: "rest", length: 16, octave: 0},
+        //   { name: "rest", length: 8, octave: 0},
+        //   { name: "rest", length: 4, octave: 0},
+        //   { name: "rest", length: 2, octave: 0},
+        //   { name: "rest", length: 1, octave: 0},
+        //   { name: "d", length: 4, octave: 0, stemDirection: "up" },
+        //   { name: "e", length: 4, octave: 0, stemDirection: "up" },
+        //   { name: "f", length: 4, octave: 0, stemDirection: "up" },
+        //   { name: "g", length: 4, octave: 0, stemDirection: "up" },
+        //   { name: "a", length: 4, octave: 0, stemDirection: "up" },
+        //   { name: "b", length: 4, octave: 0, stemDirection: "up" },
+        //   { name: "c", length: 4, octave: 1, stemDirection: "up" },
+        //   { name: "d", length: 4, octave: 1, stemDirection: "up" },
+        //   { name: "e", length: 4, octave: 1, stemDirection: "up" },
+        //   { name: "f", length: 4, octave: 1, stemDirection: "up" },
+        //   { name: "g", length: 4, octave: 1, stemDirection: "up" },
+        //   { name: "a", length: 4, octave: 1, stemDirection: "up" },
+        //   { name: "b", length: 4, octave: 1, stemDirection: "up" },
+        //   { name: "c", length: 4, octave: 2, stemDirection: "up" },
+        //   { name: "d", length: 4, octave: 2, stemDirection: "up"  },
+        //   { name: "e", length: 4, octave: 2, stemDirection: "up"  },
+        //   { name: "f", length: 4, octave: 2, stemDirection: "up"  },
+        //   { name: "g", length: 4, octave: 2, stemDirection: "up" },
+        //   { name: "a", length: 4, octave: 2, stemDirection: "up" },
+        //   { name: "b", length: 4, octave: 2, stemDirection: "up" },
+        //   { name: "c", length: 4, octave: 3, stemDirection: "up" },
+        //   { name: "d", length: 4, octave: 3, stemDirection: "up"  },
+        //   { name: "e", length: 4, octave: 3, stemDirection: "up"  },
+        //   { name: "f", length: 4, octave: 3, stemDirection: "up"  },
+        // ];
+
+        // var notesStaffOne = [
+        //   { name: "c", length: 4, octave: 2, dots: 1 },
+        //   { name: "bes", length: 8, octave: 1, stemDirection: "down" },
+        //   { name: "a", length: 4, octave: 1 },
+        //   { name: "g", length: 4, octave: 1 },
+        //   { name: "f", length: 4, octave: 1 },
+        //   { name: "e", length: 4, octave: 1 },
+        //   { name: "d", length: 2, octave: 1 },
+        //   { name: "c", length: 2, octave: 1 },
+        //   { name: "rest", length: 4 },
+        //   { name: "c", length: 4, octave: 1 },
+        //   { name: "f", length: 4, octave: 1 },
+        //   { name: "g", length: 4, octave: 1 },
+        //   { name: "a", length: 4, octave: 1 },
+        //   { name: "g", length: 8, octave: 1 },
+        //   { name: "f", length: 8, octave: 1 },
+        //   { name: "g", length: 2, octave: 1 },
+        //   { name: "f", length: 4, octave: 1 },
+        //   { name: "c", length: 4, octave: 2 },
+        //   { name: "d", length: 4, octave: 2 },
+        //   { name: "c", length: 2, octave: 2 },
+        //   { name: "bes", length: 8, octave: 1 },
+        //   { name: "a", length: 8, octave: 1 },
+        //   { name: "bes", length: 4, octave: 1 },
+        //   { name: "g", length: 4, octave: 1 },
+        //   { name: "c", length: 4, octave: 2, dots: 1 },
+        //   { name: "bes", length: 8, octave: 1 },
+        //   { name: "a", length: 4, octave: 1 },
+        //   { name: "g", length: 2, octave: 1 },
+        //   { name: "f", length: 4, octave: 1 },
+        //   { name: "f", length: 4, octave: 1 },
+        //   { name: "e", length: 4, octave: 1 },
+        //   { name: "f", length: 4, octave: 1 },
+        //   { name: "rest", length: 8},
+        //   { name: "g", length: 8, octave: 1 },
+        //   { name: "a", length: 8, octave: 1 },
+        //   { name: "bes", length: 8, octave: 1 },
+        //   { name: "c", length: 4, octave: 2 },
+        //   { name: "f", length: 2, octave: 1 },
+        // ];
+        //
+
+        //parallel voices
         var notesStaffOne = [
-          //{ name: "cis", length: 4, octave: 1 },
-          [{ name: "cis", length: 4, octave: 1 },
-           { name: "dis", length: 4, octave: 1 },
-           { name: "eis", length: 4, octave: 1 },
-           { name: "fis", length: 4, octave: 1 }],
-           { name: "rest", length: 16, octave: 0},
-          { name: "rest", length: 8, octave: 0},
-          { name: "rest", length: 4, octave: 0},
-          { name: "rest", length: 2, octave: 0},
-          { name: "rest", length: 1, octave: 0},
-          { name: "d", length: 4, octave: 0, stemDirection: "down" },
-          { name: "e", length: 4, octave: 0, stemDirection: "down" },
-          { name: "f", length: 4, octave: 0, stemDirection: "down" },
-          { name: "g", length: 4, octave: 0, stemDirection: "down" },
-          { name: "a", length: 4, octave: 0, stemDirection: "down" },
-          { name: "b", length: 4, octave: 0, stemDirection: "down" },
-          { name: "c", length: 4, octave: 1, stemDirection: "down" },
-          { name: "d", length: 4, octave: 1, stemDirection: "down" },
-          { name: "e", length: 4, octave: 1, stemDirection: "down" },
-          { name: "f", length: 4, octave: 1, stemDirection: "down" },
-          { name: "g", length: 4, octave: 1, stemDirection: "down" },
-          { name: "a", length: 4, octave: 1, stemDirection: "down" },
-          { name: "b", length: 4, octave: 1, stemDirection: "down" },
-          { name: "c", length: 4, octave: 2, stemDirection: "down" },
-          { name: "d", length: 4, octave: 2, stemDirection: "down"  },
-          { name: "e", length: 4, octave: 2, stemDirection: "down"  },
-          { name: "f", length: 4, octave: 2, stemDirection: "down"  },
-          { name: "g", length: 4, octave: 2, stemDirection: "down" },
-          { name: "a", length: 4, octave: 2, stemDirection: "down" },
-          { name: "b", length: 4, octave: 2, stemDirection: "down" },
-          { name: "c", length: 4, octave: 3, stemDirection: "down" },
-          { name: "d", length: 4, octave: 3, stemDirection: "down"  },
-          { name: "e", length: 4, octave: 3, stemDirection: "down"  },
-          { name: "f", length: 4, octave: 3, stemDirection: "down"  },
+          [
+            {
+              name: "voice",
+              voiceNumber: 1,
+              notes: [
+                { name: "c", length: 4, octave: 2, dots: 1 },
+              ]
+            },
+            {
+              name: "voice",
+              voiceNumber: 2,
+              notes: [
+                { name: "c", length: 4, octave: 1, dots: 1 },
+              ]
+            }
+          ]
         ];
 
-
+        //non-parallel voices, which are essentially useless
         var notesStaffTwo = [
-          //{ name: "cis", length: 4, octave: 1 },
-          [{ name: "cis", length: 4, octave: 1 },
-           { name: "dis", length: 4, octave: 1 },
-           { name: "eis", length: 4, octave: 1 },
-           { name: "fis", length: 4, octave: 1 }],
-           { name: "rest", length: 16, octave: 0},
-          { name: "rest", length: 8, octave: 0},
-          { name: "rest", length: 4, octave: 0},
-          { name: "rest", length: 2, octave: 0},
-          { name: "rest", length: 1, octave: 0},
-          { name: "d", length: 4, octave: 0, stemDirection: "up" },
-          { name: "e", length: 4, octave: 0, stemDirection: "up" },
-          { name: "f", length: 4, octave: 0, stemDirection: "up" },
-          { name: "g", length: 4, octave: 0, stemDirection: "up" },
-          { name: "a", length: 4, octave: 0, stemDirection: "up" },
-          { name: "b", length: 4, octave: 0, stemDirection: "up" },
-          { name: "c", length: 4, octave: 1, stemDirection: "up" },
-          { name: "d", length: 4, octave: 1, stemDirection: "up" },
-          { name: "e", length: 4, octave: 1, stemDirection: "up" },
-          { name: "f", length: 4, octave: 1, stemDirection: "up" },
-          { name: "g", length: 4, octave: 1, stemDirection: "up" },
-          { name: "a", length: 4, octave: 1, stemDirection: "up" },
-          { name: "b", length: 4, octave: 1, stemDirection: "up" },
-          { name: "c", length: 4, octave: 2, stemDirection: "up" },
-          { name: "d", length: 4, octave: 2, stemDirection: "up"  },
-          { name: "e", length: 4, octave: 2, stemDirection: "up"  },
-          { name: "f", length: 4, octave: 2, stemDirection: "up"  },
-          { name: "g", length: 4, octave: 2, stemDirection: "up" },
-          { name: "a", length: 4, octave: 2, stemDirection: "up" },
-          { name: "b", length: 4, octave: 2, stemDirection: "up" },
-          { name: "c", length: 4, octave: 3, stemDirection: "up" },
-          { name: "d", length: 4, octave: 3, stemDirection: "up"  },
-          { name: "e", length: 4, octave: 3, stemDirection: "up"  },
-          { name: "f", length: 4, octave: 3, stemDirection: "up"  },
+          { name: "c", length: 4, octave: 1, dots: 1}
         ];
 
         var staffOne = {
           clef: "treble",
-          time: "4/4",
-          key: "cis",
+          time: "2/2",
+          //key: "cis",
           //hideClef: true, // test to hide clef
           notes: notesStaffOne
         };
 
-        var staffTwo = {
-          clef: "treble",
-          time: "4/4",
-          key: "cis",
-          //hideClef: true, // test to hide clef
-          notes: notesStaffTwo
-        };
+        // var staffTwo = {
+        //   clef: "bass",
+        //   time: "4/4",
+        //   key: "cis",
+        //   //hideClef: true, // test to hide clef
+        //   notes: notesStaffTwo
+        // };
 
         var score = {
           //staffs: [staffOne, staffTwo, staffThree, staffFour, staffFive]
-          staffs: [staffOne, staffTwo]
+          //staffs: [staffOne, staffTwo]
+          staffs: [staffOne]
         };
 
         var p = Presto.Score.from('example');
@@ -112,7 +248,43 @@
           p.parse(score);
           p.notate();
           p.render();
-        }, 200);
+        },100);
+
+        function codeDidChange () {
+          console.log('codeDidChange');
+          var code = document.getElementById('code').value;
+          var parsedScore = Presto.lilypondParser.parseLilypond(code);
+          p.parse(parsedScore);
+          p.notate();
+          p.render();
+        }
+
+        // window.setTimeout(function () {
+        //   var c = document.getElementById('example');
+        //   var ctx = c.getContext('2d');
+        //   ctx.beginPath();
+        //   ctx.font = "32pt Emmentaler26";
+        //   ctx.fillText(String.fromCharCode(0xE100), 100, 100);
+
+        //   // 64pt => 24px note height
+        //   // 32pt => 12px note height
+        //   // 8 / 3 => 8pt === 3px
+        //   //
+        //   // ctx.beginPath();
+        //   // ctx.moveTo(0,194);
+        //   // ctx.lineTo(1200,194);
+        //   // ctx.moveTo(0,206);
+        //   // ctx.lineTo(1200,206);
+        //   // ctx.stroke();
+
+        //   // so, default of text is middle, left
+        //   // var ch = String.fromCharCode(fontList["noteheads.s0"]);
+        //   // ctx.fillText(ch, 200, 200);
+        //   // ctx.fillText(String.fromCharCode(), 260, 200);
+        //   // ctx.fillText(String.fromCharCode(), 320, 200);
+        //   // console.log(ctx.measureText(ch));
+        //   T = document.getElementById('testdiv');
+        // }, 100);
 
       </script>
 

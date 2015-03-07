@@ -699,13 +699,34 @@ Presto.mixin(Presto.Array.prototype, Presto.Reducers, {
   */
   everyProperty: function (key, value) {
     var len = this.length;
-    var ret  = true;
+    var ret = true;
     for (var idx = 0;ret && (idx < len);idx++) {
       var next = this[idx];
       var cur = next ? (next.get ? next.get(key) : next[key]) : null;
       ret = (value === undefined) ? !!cur : cur === value;
     }
     return ret;
+  },
+
+  /**
+    Returns YES if the passed property resolves to true for any item in the
+    enumerable.  This method is often simpler/faster than using a callback.
+
+    @param {String} key the property to test
+    @param {String} value optional value to test against.
+    @returns {Boolean} YES
+  */
+  someProperty: function (key, value) {
+    var len = this.get ? this.get('length') : this.length;
+    var ret  = false;
+    var last = null;
+    for (var idx = 0; !ret && (idx < len); idx++) {
+      var next = this[idx]
+      var cur = next ? (next.get ? next.get(key) : next[key]) : null;
+      ret = (value === undefined) ? !!cur : cur === value;
+      if (ret) return ret; // fast path
+    }
+    return ret;  // return the invert
   },
 
   get: function (key) {
@@ -750,6 +771,369 @@ Presto.mixin(Presto.Array, {
 
 
 
+/*globals Presto, console*/
+
+Presto.lilypondParser = {
+
+  /**
+   * regex to match a score block
+   * @type {RegExp}
+   */
+  _scoreRegex: /\\score.+?\{([\s\S]*)\}/,
+
+  /**
+   * regex to match a staff block
+   * @type {RegExp}
+   */
+  _staffRegex: /\\new\sStaff\s\{([\s\S]+)\}/,
+
+  /**
+   * regex to match a voice block
+   * @type {RegExp}
+   */
+  _voiceRegex: /\\new\sVoice\s\{([\s\S]+)\}/,
+
+  /**
+   * regex to match the clef command
+   * @type {RegExp}
+   */
+  _clefRegex: /\\clef (.+)/, //match 1 will be the clef name
+
+  /**
+   * regex to match a time signature
+   * @type {RegExp}
+   */
+  _timeRegex: /\\time ([0-9])\/([1|2|4|8|16])/,
+
+  /**
+   * regex to match a parallel block
+   * @type {RegExp}
+   */
+  _parallelRegex: /<<([\s\S]*)>>/,
+
+  /**
+   * regex to match (and parse) a note
+   * @type {RegExp}
+   */
+  _noteRegex: /\b([a-g](?:es|is|s)?)([',]*)(1|2|4|8|16)*(\.*)?/,
+
+  /**
+   * regex to match (and parse) a relative block
+   * @type {RegExp}
+   */
+  _relativeRegex: /\\relative[\s\S]+?([a-g](?:es|is|s)?)([',]*)?[\s\S]*?\{([\s\S]+?)\}/,
+
+  /**
+   * regex to match (and parse) a chord
+   * @type {[type]}
+   */
+  _chordRegex: /\\<(.+)\>([1|2|4|8|16]?)(\.*)/,
+
+
+  parseLilypond: function (code) {
+    var ret = {
+      staffs: []
+    }, score, staffs, parallel, staff, voices;
+
+    this._previousNote = null;
+    score = this.findBlock("score", code);
+    staffs = this.findBlock("Staff", code);
+    debugger;
+    if (score.length === 0 && staffs.length === 0) { // go to simple mode
+      ret.staffs[0] = {
+        notes: [[this.parseVoice(code)]]
+      };
+    }
+    else {
+      score = score[0].trim();
+      parallel = this._parallelRegex.exec(score);
+      if (parallel) { //
+        staffs.forEach(function (s) {
+          var r = {
+            notes: []
+          };
+          s = this._staffRegex.exec(s)[1];
+          var clef = this._clefRegex.exec(s);
+          if (clef){
+            r.clef = clef[1];
+            // remove clef from code
+            s = s.slice(0,clef.index) + s.slice(clef.index+clef[0].length);
+            s = s.trim();
+          }
+          var time = this._timeRegex.exec(s);
+          if (time) {
+            r.time = time[1] + "/" + time[2]; // done to prevent having unparseable values
+            s = s.slice(0,time.index) + s.slice(time.index+time[0].length);
+            s = s.trim();
+          }
+          // then parsing of contents, which can be either relative, absolute or a mix
+          parallel = this._parallelRegex.exec(s);
+          if (parallel) { // we have parallel voices
+            voices = [];
+            this.findBlock("Voice", s).forEach(function (v) {
+              v = this._voiceRegex.exec(v)[1];
+              voices.push(this.parseVoice(v));
+            }, this);
+            r.notes.push(voices);
+          }
+          else {
+            r.notes.push([this.parseVoice(s)]);
+          }
+          ret.staffs.push(r);
+        }, this);
+      }
+    }
+
+    return ret;
+  },
+
+  /**
+   * The voice context itself is not supported yet, but the contents of a staff can be
+   * regarded as a voice context anyhow
+   * @param  {String} voiceContent content of voice context
+   * @return {Array}              hashes of notes
+   */
+  parseVoice: function (voiceContent) {
+    //easiest is to create an array
+    //this._previousNote = null;
+    //var raw = [], ret = [], match, match2, prev, note, notesString;
+    // first parse all relative blocks
+
+    // thinking about this a bit more, and realizing chords are not supported now
+    // and also are very difficult to add in this setup, this should be done differently
+    var v = voiceContent;
+    var ret = [];
+    var len = v.length;
+    var curItem, match, cmd, chord, next, note;
+    var prev = {
+      length: 4
+    };
+    var inRelative = false;
+
+    var spacings = ["", " ", "\t", "\n"];
+
+    var obj = {
+      name: "voice"
+    };
+
+    for (var i = 0; i < len; i += 1) {
+      curItem = v[i];
+      if (spacings.indexOf(curItem) > -1) continue; // ignore all spacing
+      if (curItem === "\\") { // command
+        next = v.indexOf(" ", i);
+        if (next === -1) throw new Error("Syntax error: no space after command?");
+        cmd = v.slice(i, next).trim(); // till the next space and get rid of extra's such as newlines...
+        switch (cmd) {
+          case "\\relative":
+            match = this._relativeRegex.exec(v.slice(i));
+            if (!match) throw new Error("syntax error in relative");
+            prev = this.parseNote(match[1] + match[2]);
+            inRelative = true;
+            i = v.indexOf(match[3], i); // skip to the content of the relative
+            break; // set relative parsing on, and set prev
+          case "\\voiceOne":
+            obj.voiceNumber = 1;
+            i += cmd.length;
+            break;
+          case "\\voiceTwo":
+            obj.voiceNumber = 2;
+            i += cmd.length;
+            break;
+          default:
+            break;
+        }
+        continue;
+      }
+      if (curItem === "}" && inRelative) {
+        inRelative = false;
+        continue;
+      }
+      if (curItem === "<" && v[i+1] !== "<") { // chord
+        next = v.indexOf(">", i);
+        match = this._chordRegex(v.slice(i));
+        if (!match) {
+          throw new Error("Chord syntax error");
+        }
+        if (inRelative) {
+          chord = this.parseChord(match, prev);
+          ret.push(chord);
+          prev = chord[0];
+        }
+        else { // absolute mode, give the previous length...
+          chord = this.parseChord(match, null, prev.length);
+          prev = chord[0];
+          ret.push(chord);
+        }
+        i += match[0].length;
+        continue;
+      }
+      // normal notes we assume
+      note = v.slice(i, v.indexOf(" ", i));
+      if (inRelative) {
+        prev = this.parseNote(note, prev);
+      }
+      else {
+        prev = this.parseNote(note, null, prev.length);
+      }
+      ret.push(prev);
+      i += note.length;
+    }
+
+    obj.notes = ret;
+
+    return obj;
+  },
+
+  _previousNote: null,
+
+  /**
+   * Parses a chord
+   * @param  {String|Array} chord     Chord in either string or regex result
+   * @param  {Note} reference reference tone in case of relative
+   * @param {Number} reflength In case of absolute names, there is no reference, but there is a current lengt
+   *                           because lilypond allows the length to be omitted in both relative and absolute mode
+   * @return {Array}           array of notes
+   */
+  parseChord: function (chord, reference, reflength) {
+    if (typeof chord === "string") {
+      chord = this._chordRegex.exec(chord);
+      if (!chord) throw new Error("Syntax error in chord");
+    }
+    var ret = [];
+    var notes = chord[1];
+    var length = parseInt(chord[2], 10) || (reference ? reference.length : null) || reflength;
+    var dots = chord[3];
+    var prev = reference;
+    notes.split(" ").forEach(function (n) {
+      if (!n) return;
+      n = this.parseNote(n, prev);
+      if (n) {
+        n.length = length;
+        if (dots) n.dots = dots.length;
+        prev = n;
+        ret.push(n);
+      }
+    }, this);
+    return ret;
+  },
+
+  /**
+   * Parses a note into a note hash
+   * @param  {String} note      the note to parse
+   * @param  {Hash} reference Optional: if given, it will take this as relative reference
+   * @return {[type]}           [description]
+   */
+  parseNote: function (note, reference) {
+    // this regex gives us 4 groups:
+    // match[1] => note name
+    // match[2] => commas or apostrophes
+    // match[3] => base length
+    // match[4] => dots
+    var noteNames = Presto.Note._noteNames;
+    var octave;
+    var match = this._noteRegex.exec(note);
+    if (!match) {
+      console.log('invalid note name?: ' + note);
+      console.log(match);
+      throw new Error("WHoops?");
+    }
+    var noteName = match[1];
+    if (reference) {
+      var indexOfRef = noteNames.indexOf(reference.name[0]);
+      var indexOfNote = noteNames.indexOf(noteName[0]);
+      octave = reference.octave;
+      //_noteNames: ['c', 'd', 'e', 'f', 'g', 'a', 'b'],
+      if (indexOfRef < indexOfNote) {
+        if ((indexOfNote - indexOfRef) > 4) octave -= 1;
+      }
+      else if (indexOfNote < indexOfRef) {
+        if (indexOfRef - indexOfNote > 3) octave += 1;
+      }
+    }
+    else octave = 0;
+
+    match[2].split("").forEach(function (c) {
+      if (c === "'") octave += 1;
+      if (c === ",") octave -= 1;
+    });
+
+    var length = 4;
+    if (reference) {
+      length = match[3]? parseInt(match[3], 10) : reference.length;
+    }
+    else {
+      if (this._previousNote && this._previousNote.length) length = this._previousNote.length;
+    }
+
+    var ret = {
+      name: noteName,
+      octave: octave,
+      length: length
+    };
+    if (match[4]) {
+      ret.dots = match[4].split("").length;
+    }
+    this._previousNote = ret;
+    return ret;
+  },
+
+  // this need to be done a bit differently, as regex is only going to help us onto a certain level
+  /**
+   * findBlock will find a block of a certain type in string
+   * @param  {String} blockType such as score, Staff etc
+   * @param  {String} string    from which the block will be retrieved
+   * @return {Array|null}       Array with text blocks with the content of the blockType, null if not found
+   */
+  findBlock: function (blockType, string) {
+    // this means, we search for "\" + blockType, then take the first { and continue till we
+    // find a } on the same level
+    //debugger;
+    var command, cmdIndex, ret = [], curBlock = "";
+    if (blockType[0] !== "\\") {
+      command = "\\" + blockType;
+      cmdIndex = string.indexOf(command);
+      if (cmdIndex === -1) {
+        command = "\\new " + blockType;
+        cmdIndex = string.indexOf(command);
+        if (cmdIndex === -1) {
+          return ret; // we cannot find anything
+        }
+      }
+    }
+    var rest = string.slice(cmdIndex);
+    var level = 0, openAcc, closeAcc;
+    while (rest.length > 0) {
+      openAcc = rest.indexOf("{");
+      closeAcc = rest.indexOf("}");
+      if (openAcc > -1 && openAcc < closeAcc) {
+        level += 1;
+        curBlock += rest.slice(0, openAcc + 1);
+        rest = rest.slice(openAcc + 1);
+      }
+      else if (closeAcc > -1) {
+        level -= 1;
+        curBlock += rest.slice(0, closeAcc + 1);
+        rest = rest.slice(closeAcc + 1);
+      }
+      if (level === 0) {
+        // end of block reached
+        ret.push(curBlock);
+        curBlock = "";
+        cmdIndex = rest.indexOf(command);
+        if (cmdIndex > -1) {
+          rest = rest.slice(cmdIndex);
+        }
+        else rest = ""; // we're done
+      }
+      if (level === 0 && openAcc === -1 && closeAcc === -1) {
+        // nothing left to do
+        rest = "";
+      }
+    }
+    return ret;
+  }
+
+};
 /*globals Presto */
 
 Presto.fetaFontInfo = {
@@ -1325,7 +1709,7 @@ Presto.Grob = Presto.Object.extend({
     if (!this.childGrobs) this.childGrobs = Presto.Array.create();
     if (!grob.parentGrob) grob.set('parentGrob', this);
     if (grob.x === null) grob.x = 0;
-    if (!grob.score) grob.score = this.score;
+    if (!grob.score && this.score) grob.score = this.score;
     if (!grob.staff && this.staff) grob.staff = this.staff;
     this.childGrobs.push(grob);
     return this;
@@ -1762,6 +2146,126 @@ Presto.Line = Presto.Grob.extend({
 //     //console.log('lineWidth: ' + lw);
 //   }
 // });
+/*globals Presto*/
+
+
+/**
+ * Presto.Barline is as the name suggest very much like a line. It needs to be able to
+ * do more though, so it is a Grob.
+ */
+Presto.Barline = Presto.Grob.extend({
+  /**
+   * Quack like a duck
+   * @type {Boolean}
+   */
+  isBarline: true,
+
+  /**
+   * The type of barline to draw. See below.
+   * @type {String}
+   */
+  type: null,
+
+  toX: null,
+
+  toY: null,
+
+  init: function () {
+    var t = this.get('type');
+    switch (t) {
+      case Presto.Barline.T_SINGLE:
+        this.addSingleBarline();
+        break;
+    }
+  },
+
+  addSingleBarline: function () {
+    this.addChildGrob(Presto.Line.create({
+      x: 0,
+      y: 1,
+      toX: 0,
+      toY: Math.abs(this.y - this.toY) + (this.staff.staffLineThickness * 2),
+      lineWidth: 2,
+      score: this.score
+    }));
+  }
+});
+
+Presto.mixin(Presto.Barline, {
+  T_SINGLE: "singlebar",
+  T_DOUBLE: "doublebar",
+  T_END: "endbar",
+  T_REPEAT_OPEN: "repeat_open",
+  T_REPEAT_CLOSE: "repeat_close"
+});
+
+// /*globals CanvasMusic */
+// CanvasMusic.Barline = CanvasMusic.Grob.extend({
+
+//   type: null, // one of the types
+
+//   marginLeft: function () {
+//     //debugger;
+//     //console.log('barline width: ' + this.get('width'));
+//     return this.getPath('cm.size') / 2;
+//   }.property(),
+
+//   marginRight: function () {
+//     //debugger;
+//     //console.log('barline width: ' + this.get('width'));
+//     return this.getPath('cm.size') / 2;
+//   }.property(),
+
+//   width: function () {
+//     return this.get('marginRight') + this.get('marginLeft');
+//   }.property(),
+
+//   init: function () {
+//     arguments.callee.base.apply(this, arguments);
+//     var t = this.get('type');
+//     var k = CanvasMusic.Barline;
+//     var size = this.getPath('cm.size');
+//     switch (t) {
+//       case k.T_SINGLE:
+//         this.addChildGrob(CanvasMusic.Line.create({
+//           parentGrob: this,
+//           parentStaff: this.get('parentStaff'),
+//           cm: this.get('cm'),
+//           lineWidth: size / 6,
+//           y: this.get('y'),
+//           skipWidth: true,
+//           height: this.get('height')
+//         }));
+//         break;
+//       case k.T_DOUBLE: break;
+//       case k.T_END: break;
+//       case k.T_REPEAT_OPEN: break;
+//       case k.T_REPEAT_CLOSE: break;
+//       default: throw new Error("CanvasMusic.Barline: undefined barline type: " + t);
+//     }
+//   },
+
+//   toString: function () {
+//     return "CanvasMusic.Barline %@".fmt(SC.guidFor(this));
+//   },
+
+//   isBarLine: true // quack like a duck...
+// });
+
+// SC.mixin(CanvasMusic.Barline, {
+//   T_SINGLE: "singlebar",
+//   T_DOUBLE: "doublebar",
+//   T_END: "endbar",
+//   T_REPEAT_OPEN: "repeat_open",
+//   T_REPEAT_CLOSE: "repeat_close",
+
+//   isBarline: function (name) {
+//     var k = CanvasMusic.Barline;
+//     if (!name) return false;
+//     var validNames = [ k.T_SINGLE, k.T_DOUBLE, k.T_END, k.T_REPEAT_CLOSE, k.T_REPEAT_OPEN ];
+//     return validNames.indexOf(name) > -1;
+//   }
+// });
 /*globals Presto */
 
 Presto.mixin({
@@ -1828,7 +2332,9 @@ Presto.Stem = Presto.Grob.extend({
       this.addChildGrob(Presto.Symbol.create({
         x: 0,
         y: this.toY,
-        name: noteFlag
+        name: noteFlag,
+        score: this.score,
+        staff: this.staff
       }));
     }
 
@@ -1893,15 +2399,11 @@ Presto.Note = Presto.Grob.extend({
   stemLineWidth: 2,
 
   stemUp: function () {
-    var stemDirection = this.get('stemDirection');
-    if (!stemDirection) this.setDefaultStemDirection();
-    return this.stemDirection === Presto.STEMDIRECTION_UP;
+    return this.get('stemDirection') === Presto.STEMDIRECTION_UP;
   },
 
   stemDown: function () {
-    var stemDirection = this.get('stemDirection');
-    if (!stemDirection) this.setDefaultStemDirection();
-    return this.stemDirection === Presto.STEMDIRECTION_DOWN;
+    return this.get('stemDirection') === Presto.STEMDIRECTION_DOWN;
   },
 
   /**
@@ -1909,7 +2411,7 @@ Presto.Note = Presto.Grob.extend({
    * It also sets a stem direction on a whole note, but a whole note doesn't draw its stem
    */
   setDefaultStemDirection: function () {
-    if (this.get('positionOnStaff') <= 0 ) {
+    if (this.get('positionOnStaff') >= 0 ) {
       this.stemDirection = Presto.STEMDIRECTION_UP;
     }
     else this.stemDirection = Presto.STEMDIRECTION_DOWN;
@@ -1976,7 +2478,7 @@ Presto.Note = Presto.Grob.extend({
         var sum = x + w;
         if (sum > biggest) biggest = sum;
       }
-    });
+    }, this);
     ret = Math.abs(smallest) + biggest;
     return ret;
   },
@@ -2075,11 +2577,13 @@ Presto.Note = Presto.Grob.extend({
 
   init: function () {
     if (this.isPlaceholder) return;
+
     // the init runs the adding procedure in the same order as the elements are going to appear
     this.addAccidental();
     this.addHelperLines(); // helper lines first, as they need to be overwritten
     this.addNoteHead();
     this.addStem();
+    this.addDots();
   },
 
   /**
@@ -2090,9 +2594,13 @@ Presto.Note = Presto.Grob.extend({
     // for now, we remove the childGrobs and rerun init,
     // rewrite if it turns out to be a bottle neck performance wise
     this.childGrobs = null;
+    if (!this.stemDirection) this.setDefaultStemDirection();
     this.init();
   },
 
+  /**
+   * Function to add the note head to the note, and set the _noteHeadWidth property
+   */
   addNoteHead: function () {
     var noteHead = this.get('noteHead');
     // y is set to zero, as the note object itself is already at the right vertical offset
@@ -2106,6 +2614,33 @@ Presto.Note = Presto.Grob.extend({
     });
     this._noteHeadWidth = symbol.get('width');
     this.addChildGrob(symbol);
+  },
+
+  /**
+   * Function to add any dots to the note if required
+   */
+  addDots: function () {
+    var dots = this.dots;
+    if (!dots) return;
+
+    if (typeof dots !== "number") throw new Error("Dots should be a number");
+
+    var dotObj;
+    var staffSize = this.score.get('size');
+    var extraOffset = this._noteHeadWidth + staffSize;
+
+    for (var i = 0; i < dots; i += 1) {
+      dotObj = Presto.Symbol.create({
+        staff: this.staff,
+        score: this.score,
+        name: "dots.dot",
+        x:  extraOffset,
+        y: 0,
+        ignoreWidth: true
+      });
+      extraOffset += dotObj.get('width');
+      this.addChildGrob(dotObj);
+    }
   },
 
   /**
@@ -2185,10 +2720,8 @@ Presto.Note = Presto.Grob.extend({
       stemLength = staff.calculateVerticalOffsetFor(0) - staff.calculateVerticalOffsetFor(pos);
     }
 
-    // the x position of the stem upwards doesn't nicely fit with noteheadwith / 2, and needs
-    // a correction, which is now half a staff space, but it is not sure this will hold up
-    // when scaling.
-    var startX = stemUp ? (this._noteHeadWidth) - (staffSpace / 2): this.x;
+    // the position of the stem needs to be corrected for the linewidth, which is now hardcoded here
+    var startX = stemUp ? this._noteHeadWidth - 2: this.x;
     var toY = stemUp ? stemLength * -1 : stemLength;
 
     this.addChildGrob(Presto.Stem.create({
@@ -3031,6 +3564,77 @@ Presto.Column = Presto.Grob.extend({
 
 
 
+/*globals Presto*/
+
+Presto.TimeSignature = Presto.Column.extend({
+
+  /**
+   * Number of beats per bar
+   * @type {Number}
+   */
+  numberOfBeatsPerBar: null,
+
+  /**
+   * What note represents one beat?
+   * @type {Number}
+   */
+  beatType: null,
+
+  /**
+   * Force the use of numbers for certain types of time signature,
+   * such as 2/2 and 4/4
+   * @type {Boolean}
+   */
+  forceNumeric: false,
+
+  init: function () {
+    var forceNumeric = this.forceNumeric;
+    var numBeats = this.get('numberOfBeatsPerBar');
+    var beatType = this.get('beatType');
+    var symbolicOption = (numBeats === 4 && beatType === 4) || (numBeats === 2 && beatType === 2);
+
+    if (symbolicOption && !forceNumeric) {
+      this.addSymbolic();
+    }
+    else this.addNumeric();
+
+  },
+
+  /**
+   * add a numerical time signature
+   */
+  addNumeric: function () {
+    var staffSpace = this.score.get('size');
+    this.addChildGrob(Presto.Symbol.create({
+      name: this.get('numberOfBeatsPerBar').toString(),
+      y: 0 + this.staff.staffLineThickness,
+      ignoreWidth: true,
+    }));
+    this.addChildGrob(Presto.Symbol.create({
+      name: this.get('beatType').toString(),
+      y: staffSpace * 4 - this.staff.staffLineThickness,
+    }));
+  },
+
+  /**
+   * add a symbolic time signature
+   */
+  addSymbolic: function () {
+    var numBeats = this.get('numberOfBeatsPerBar');
+    var beatType = this.get('beatType');
+
+    var symbol = (numBeats === 2 && beatType === 2)? "timesig.C22" : "timesig.C44";
+
+    this.addChildGrob(Presto.Symbol.create({
+      name: symbol,
+      staff: this.staff,
+      score: this.score,
+      x: 0,
+      y: 2
+    }));
+  }
+
+});
 /*globals Presto, console*/
 
 /**
@@ -3045,8 +3649,11 @@ Presto.NoteColumn = Presto.Column.extend({
    */
   notes: null,
 
-  // IMPORTANT: the staff will decide the vertical position of the note head!
-  //
+  /**
+   * The smallest length of the notes in the column
+   * @type {Number}
+   */
+  minimumDuration: 0,
 
   init: function () {
     var notes = this.notes;
@@ -3061,16 +3668,21 @@ Presto.NoteColumn = Presto.Column.extend({
       y: 0
     };
     notes.forEach(function (n) {
-      var obj;
+      var obj, notelen;
       if (Presto.Note.isNoteHash(n)) {
         obj = Presto.Note.create(mix, n);
         // retrieve root note + octave, and set proper y value
         staff.setVerticalOffsetFor(obj);
         obj.update(); // have the note reset itself
+        notelen = staff._calculateLength(n);
+        if (notelen > this.minimumDuration) this.minimumDuration = notelen;
         this.addChildGrob(obj);
       }
       else if (Presto.Rest.isRestHash(n)) {
         this.addChildGrob(Presto.Rest.create(mix, n));
+        notelen = staff._calculateLength(n);
+        if (notelen > this.minimumDuration) this.minimumDuration = notelen;
+        //debugger;
       }
       else {
         console.log("Presto.NoteColumn: other hash types are not implemented yet");
@@ -4026,6 +4638,7 @@ Presto.Staff = Presto.Grob.extend({
     this.addStaffLines();
     this.addClef();
     this.addTimeSignature();
+    this.setTopAndBottomOffsets();
   },
 
   /**
@@ -4063,12 +4676,13 @@ Presto.Staff = Presto.Grob.extend({
       fontSize: this.score.fontSize,
       name: clefName,
       x: staffSpace,
-      y: this.get('clefPosition') * staffSpace + this.staffLineThickness
+      //y: this.get('clefPosition') * staffSpace + this.staffLineThickness
+      y: this.calculateVerticalOffsetFor(this.get('clefPosition')) + this.staffLineThickness*3
     });
 
 
     this.addChildGrob(symbol);
-    this._currentX += symbol.get('width') + 2*staffSpace;
+    this._currentX += symbol.get('width') + 4*staffSpace;
   },
 
   /**
@@ -4144,8 +4758,8 @@ Presto.Staff = Presto.Grob.extend({
       }
       note.helperLines = helperLines;
     }
-    if (note.y < this.maximumTopOffset) this.maximumTopOffset = note.y;
-    if (note.y > this.maximumBottomOffset) this.maximumBottomOffset = note.y;
+    if (note.y < this.maximumTopOffset) this.maximumTopOffset = this.calculateVerticalOffsetFor(notePos-4);
+    if (note.y > this.maximumBottomOffset) this.maximumBottomOffset = this.calculateVerticalOffsetFor(notePos+4);
     return note;
   },
 
@@ -4160,6 +4774,14 @@ Presto.Staff = Presto.Grob.extend({
    * @type {Number} size in pixels from the center
    */
   maximumBottomOffset: 0,
+
+  /**
+   * Set the default maximum top and bottom offsets, as calculated by two spots above the staff and two below
+   */
+  setTopAndBottomOffsets: function () {
+    this.maximumBottomOffset = this.calculateVerticalOffsetFor(6);
+    this.maximumTopOffset = this.calculateVerticalOffsetFor(-6);
+  },
 
   /**
    * Check validity of timeSignature as given by time, and split it into its components
@@ -4208,25 +4830,15 @@ Presto.Staff = Presto.Grob.extend({
    */
   addTimeSignature: function () {
     var staffSpace = this.score.get('size');
-
-    var c = Presto.Column.create({
+    var c = Presto.TimeSignature.create({
       x: this._currentX,
+      numberOfBeatsPerBar: this.get('numberOfBeatsPerBar'),
+      beatType: this.get('beatType'),
       score: this.score,
-      parentStaff: this
+      staff: this.staff
     });
-    c.addChildGrob(Presto.Symbol.create({
-      name: this.get('numberOfBeatsPerBar').toString(),
-      y: 0 + this.staffLineThickness,
-      fontSize: this.score.fontSize,
-      ignoreWidth: true,
-    }));
-    c.addChildGrob(Presto.Symbol.create({
-      name: this.get('beatType').toString(),
-      y: staffSpace * 4 - this.staffLineThickness,
-      fontSize: this.score.fontSize
-    }));
     this.addChildGrob(c);
-    this._currentX += c.get('width') + (2*staffSpace);
+    this._currentX += c.get('width') + (4*staffSpace);
     return this;
   },
 
@@ -4250,13 +4862,14 @@ Presto.Staff = Presto.Grob.extend({
   _notationCache: null,
 
   /**
-   * function to calculate the dotted value against the scale of 2, 4, 8, 16
+   * function to calculate the length of a (dotted) note, where a dotted value
+   * is calculated against the scale of 2, 4, 8, 16
    * A note length of 4 with dots will be smaller than 4. In order to keep the exponential scale
    * the dotted value will be expressed as a division against the original value
    * @param  {Hash} notehash the hash containing the note information
    * @return {Number}          Length value expressed as a factor on the exponential length scale
    */
-  _calculateDottedLength: function (notehash) {
+  _calculateLength: function (notehash) {
     var l = notehash.length;
     if (!l) return 0;
     if (notehash.dots && notehash.dots > 0) {
@@ -4273,31 +4886,144 @@ Presto.Staff = Presto.Grob.extend({
     return l;
   },
 
+  // voices need to be unfolded and zipped, meaning that where in the voice definitions the
+  // rhythmical streams are seperate, they have to be joined in order to notate them properly
+  //
+  _unfoldVoices: function (arrayOfVoices) {
+    // we expect hashes in the form of { name: "voice", voiceNumber: 1, notes: [] }
+    // where voiceNumber is optional
+    var cursorSize = this.score.cursorSize;
+    var voices = Presto.Array.create(arrayOfVoices);
+    var numVoices = voices.length;
+    // first make sparse arrays, while this is very similar to the generation of the
+    // notation cache itself, I don't see atm how I can prevent code duplication
+    var voiceNotes = Presto.Array.create();
+    voices.forEach(function (v, i) {
+      voiceNotes[i] = Presto.Array.create();
+      v.notes.forEach(function (n) {
+        var l;
+        if (Array.isArray(n)) {
+          l = Presto.Array.create(n.map(this._calculateLength)).get('@max');
+        }
+        else l = this._calculateLength(n);
+        if (v.voiceNumber) {
+          // the stem direction can be done by the note itself based on this
+          n.voiceNumber = v.voiceNumber;
+        }
+        voiceNotes[i].push(n);
+        voiceNotes[i].length += (cursorSize / l) - 1;
+      }, this);
+    }, this);
+
+    // now all notes in rhythmical "order" in voiceNotes, now zip where
+    // necessary and add to the cache
+    var cursor = 0;
+    var max = voiceNotes.getEach('length').get('@max');
+    var w;
+    for (var i = 0; i < max; i += 1) {
+      w = [];
+      for (var j = 0; j < numVoices; j += 1) {
+        if (voiceNotes[j][i]) {
+          w.push(voiceNotes[j][i]);
+        }
+      }
+      if (w.length > 1) {
+        this._addNoteEventToNotationCache(w);
+      }
+      else if (w.length === 1) {
+        this._addNoteEventToNotationCache(w[0]); // only one note
+      }
+    }
+  },
+
+  /**
+   * Add a note event to the notation cache. Needs to be separate, because if
+   * voices are detected, it needs to be able to call itself in order to add
+   * the unfolded voices to the cache
+   * @param {Hash|Array} noteEvent note event or note events
+   */
+  _addNoteEventToNotationCache: function (noteEvent) {
+    var curLength,
+        cache = this._notationCache,
+        cursorSize = this.score.cursorSize;
+
+    if (Array.isArray(noteEvent)) {
+      //check whether we have voices
+      if (Presto.Array.prototype.someProperty.call(noteEvent, 'name', 'voice')) {
+        this._unfoldVoices(noteEvent);
+      }
+      else {
+        noteEvent = Presto.Array.create(noteEvent);
+        // the smallest note has the biggest number
+        curLength = Presto.Array.create(noteEvent.map(this._calculateLength)).get('@max');
+      }
+    }
+    else curLength = this._calculateLength(noteEvent);
+    if (curLength) { // ignore no-length events
+      cache.push(noteEvent);
+      cache.length += (cursorSize / curLength) - 1;
+    }
+  },
+
   /**
    * Function to generate the notation cache. This generates a sparse Presto.Array, where all events are spaced
-   * with regard to the stepSize / cursorSize. Only rhythmical events are included
+   * with regard to the stepSize / cursorSize. Only rhythmical events are included.
+   *
    * @return {Object} this
    */
   _generateNotationCache: function () {
-    var cache = this._notationCache = Presto.Array.create();
+    this._notationCache = Presto.Array.create();
     var cursorSize = this.score.cursorSize;
     var n = this.get('notes');
-    var curLength;
-    n.forEach(function (noteEvent) {
-      if (Array.isArray(noteEvent)) {
-        noteEvent = Presto.Array.create(noteEvent);
-        curLength = Presto.Array.create(noteEvent.map(this._calculateDottedLength)).get('@max'); // the smallest note has the biggest number
-      }
-      else curLength = this._calculateDottedLength(noteEvent);
-      if (curLength) { // ignore no-length events
-        cache.push(noteEvent);
-        cache.length += (cursorSize / curLength) - 1;
-      }
-    }, this);
-    this._numberOfEvents = cache.length;
+    n.forEach(this._addNoteEventToNotationCache, this);
+    this._numberOfEvents = this._notationCache.length;
     this._currentCursorAt = 0;
     return this;
   },
+
+  /**
+   * This function checks whether this staff should draw barlines and if yes, whether
+   * the cursor passed a point at which a barline should be drawn. If also yes,
+   * it will insert the barline
+   */
+  checkAndDrawBarline: function () {
+    var numBeats = this.get('numberOfBeatsPerBar'),
+        beatType = this.get('beatType'),
+        cursorSize = this.score.get('cursorSize'),
+        prevBarAt = this.get('_previousBarlineAt'),
+        cursor = this._currentCursorAt;
+
+    // 4 * (16/4) => 16, 2*(16/2) => 16, 6 * (16/8) => 12
+    var numCursorsPerBar = numBeats * (cursorSize / beatType);
+    if (cursor - prevBarAt === numCursorsPerBar) {
+      //this._currentX -= this.score.get('size');
+      this.addChildGrob(Presto.Barline.create({
+        x: this._currentX,
+        y: this.calculateVerticalOffsetFor(-4),
+        toX: this._currentX,
+        toY: this.calculateVerticalOffsetFor(4),
+        score: this.score,
+        staff: this,
+        type: Presto.Barline.T_SINGLE
+      }));
+      this._currentX += this.score.get('size') * 2;
+      this._previousBarlineAt = cursor;
+    }
+  },
+
+  _previousBarlineAt: 0,
+
+  /**
+   * The minimum amount in staff spaces to add when a note has been added
+   * @type {Number}
+   */
+  minimumDurationSpace: 0,
+
+  /**
+   * Fixed amount of space in staff spaces to add when the duration doubles
+   * @type {Number}
+   */
+  durationSpaceIncrement: 1.5,
 
   /**
    * Function to advance the current notation cursor. The staff will check whether it has something to notate for this
@@ -4311,6 +5037,9 @@ Presto.Staff = Presto.Grob.extend({
         cursorAt = this._currentCursorAt,
         staffSpace = this.score.get('size'),
         currentEvent;
+
+    // first thing to do: check whether a barline should be drawn
+    this.checkAndDrawBarline();
 
     if (cursorAt >= cache.length) {
       this.notationReady = true;
@@ -4338,12 +5067,18 @@ Presto.Staff = Presto.Grob.extend({
     });
     this.addChildGrob(ret);
     var w = ret.get('width');
-    if (w === undefined) {
+    if (w === undefined) { // debugging
       window.RET = ret;
       console.log(ret);
       throw new Error("Object " + ret + " is returning undefined for width??");
     }
-    this._currentX += w + staffSpace * 3;
+    //this._currentX += w + staffSpace * 3;
+    this._currentX += w + (this.minimumDurationSpace * staffSpace);
+    //debugger;
+    var additionalSpace = (this.score.cursorSize / ret.minimumDuration) * this.durationSpaceIncrement;
+    additionalSpace *= staffSpace / 2;
+    this._currentX += additionalSpace;
+    //this._currentX += (this.score.cursorSize / ret.minimumDuration) * this.durationSpaceIncrement * staffSpace;
     // add
     this._currentCursorAt += 1;
     return ret;
@@ -5071,7 +5806,8 @@ Presto.Score = Presto.Object.extend({
     this._rootGrob = Presto.Grob.create({
       x: 0,
       y: 0,
-      isContainer: true
+      isContainer: true,
+      score: this
     });
   },
 
@@ -5260,6 +5996,7 @@ Presto.Score.mixin({
       canvas: canvas
     });
   }
+
 });
 
 ///*globals CanvasMusic */
