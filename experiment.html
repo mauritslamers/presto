@@ -4,7 +4,13 @@
     <link href="presto.css" rel="stylesheet" type="text/css">
   </head>
   <body>
-      <div id="testdiv" style="font-family: 'Emmentaler26'; font-size: 64pt;"></div>
+      <div id="testdiv" style="font: 12pt Courier;">
+        In the textarea below you can write or paste a bit of Lilypond code to be parsed.<br>
+        Be aware that the support is very limited and the syntax is interpreted strictly, as well as opiniated. For simple uses you can use relative and absolute notes, but anything more complex
+        requires the use of score and Staff, and omitting them as well as the context delimiters { and } is not allowed.
+        In complex mode the use of relative is only supported inside a staff.
+        Currently only one score block and one or more staffs are supported, and << and >> only at score level.
+      </div>
       <textarea style="width: 800px; height: 200px; font: 12pt Courier;" id="code" onChange="codeDidChange();">
 \score {
   <<
@@ -132,45 +138,71 @@
         //   { name: "f", length: 4, octave: 3, stemDirection: "up"  },
         // ];
 
+        // var notesStaffOne = [
+        //   { name: "c", length: 4, octave: 2, dots: 1 },
+        //   { name: "bes", length: 8, octave: 1, stemDirection: "down" },
+        //   { name: "a", length: 4, octave: 1 },
+        //   { name: "g", length: 4, octave: 1 },
+        //   { name: "f", length: 4, octave: 1 },
+        //   { name: "e", length: 4, octave: 1 },
+        //   { name: "d", length: 2, octave: 1 },
+        //   { name: "c", length: 2, octave: 1 },
+        //   { name: "rest", length: 4 },
+        //   { name: "c", length: 4, octave: 1 },
+        //   { name: "f", length: 4, octave: 1 },
+        //   { name: "g", length: 4, octave: 1 },
+        //   { name: "a", length: 4, octave: 1 },
+        //   { name: "g", length: 8, octave: 1 },
+        //   { name: "f", length: 8, octave: 1 },
+        //   { name: "g", length: 2, octave: 1 },
+        //   { name: "f", length: 4, octave: 1 },
+        //   { name: "c", length: 4, octave: 2 },
+        //   { name: "d", length: 4, octave: 2 },
+        //   { name: "c", length: 2, octave: 2 },
+        //   { name: "bes", length: 8, octave: 1 },
+        //   { name: "a", length: 8, octave: 1 },
+        //   { name: "bes", length: 4, octave: 1 },
+        //   { name: "g", length: 4, octave: 1 },
+        //   { name: "c", length: 4, octave: 2, dots: 1 },
+        //   { name: "bes", length: 8, octave: 1 },
+        //   { name: "a", length: 4, octave: 1 },
+        //   { name: "g", length: 2, octave: 1 },
+        //   { name: "f", length: 4, octave: 1 },
+        //   { name: "f", length: 4, octave: 1 },
+        //   { name: "e", length: 4, octave: 1 },
+        //   { name: "f", length: 4, octave: 1 },
+        //   { name: "rest", length: 8},
+        //   { name: "g", length: 8, octave: 1 },
+        //   { name: "a", length: 8, octave: 1 },
+        //   { name: "bes", length: 8, octave: 1 },
+        //   { name: "c", length: 4, octave: 2 },
+        //   { name: "f", length: 2, octave: 1 },
+        // ];
+        //
+
+        //parallel voices
         var notesStaffOne = [
-          { name: "c", length: 4, octave: 2, dots: 1 },
-          { name: "bes", length: 8, octave: 1, stemDirection: "down" },
-          { name: "a", length: 4, octave: 1 },
-          { name: "g", length: 4, octave: 1 },
-          { name: "f", length: 4, octave: 1 },
-          { name: "e", length: 4, octave: 1 },
-          { name: "d", length: 2, octave: 1 },
-          { name: "c", length: 2, octave: 1 },
-          { name: "rest", length: 4 },
-          { name: "c", length: 4, octave: 1 },
-          { name: "f", length: 4, octave: 1 },
-          { name: "g", length: 4, octave: 1 },
-          { name: "a", length: 4, octave: 1 },
-          { name: "g", length: 8, octave: 1 },
-          { name: "f", length: 8, octave: 1 },
-          { name: "g", length: 2, octave: 1 },
-          { name: "f", length: 4, octave: 1 },
-          { name: "c", length: 4, octave: 2 },
-          { name: "d", length: 4, octave: 2 },
-          { name: "c", length: 2, octave: 2 },
-          { name: "bes", length: 8, octave: 1 },
-          { name: "a", length: 8, octave: 1 },
-          { name: "bes", length: 4, octave: 1 },
-          { name: "g", length: 4, octave: 1 },
-          { name: "c", length: 4, octave: 2, dots: 1 },
-          { name: "bes", length: 8, octave: 1 },
-          { name: "a", length: 4, octave: 1 },
-          { name: "g", length: 2, octave: 1 },
-          { name: "f", length: 4, octave: 1 },
-          { name: "f", length: 4, octave: 1 },
-          { name: "e", length: 4, octave: 1 },
-          { name: "f", length: 4, octave: 1 },
-          { name: "rest", length: 8},
-          { name: "g", length: 8, octave: 1 },
-          { name: "a", length: 8, octave: 1 },
-          { name: "bes", length: 8, octave: 1 },
-          { name: "c", length: 4, octave: 2 },
-          { name: "f", length: 2, octave: 1 },
+          [
+            {
+              name: "voice",
+              voiceNumber: 1,
+              notes: [
+                { name: "c", length: 4, octave: 2, dots: 1 },
+              ]
+            },
+            {
+              name: "voice",
+              voiceNumber: 2,
+              notes: [
+                { name: "c", length: 4, octave: 1, dots: 1 },
+              ]
+            }
+          ]
+        ];
+
+        //non-parallel voices, which are essentially useless
+        var notesStaffTwo = [
+          { name: "c", length: 4, octave: 1, dots: 1}
         ];
 
         var staffOne = {
@@ -203,8 +235,9 @@
         },100);
 
         function codeDidChange () {
+          debugger;
           console.log('codeDidChange');
-          var code = document.getElementById('code').textContent;
+          var code = document.getElementById('code').value;
           var parsedScore = Presto.lilypondParser.parseLilypond(code);
           p.parse(parsedScore);
           p.notate();
