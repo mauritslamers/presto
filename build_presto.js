@@ -13,6 +13,7 @@ var files = [
   "lib/barline.js",
   "lib/stem.js",
   "lib/note.js",
+  "lib/note_names.js",
   "lib/rest.js",
   "lib/column.js",
   "lib/time_signature.js",
