@@ -30,6 +30,7 @@
   <<
   \new Staff {
     \clef treble
+    \key f \major
     \time 2/2
     <<
     \new Voice {
@@ -181,37 +182,37 @@
         //
 
         //parallel voices
-        var notesStaffOne = [
-          [
-            {
-              name: "voice",
-              voiceNumber: 1,
-              notes: [
-                { name: "c", length: 4, octave: 2, dots: 1 },
-              ]
-            },
-            {
-              name: "voice",
-              voiceNumber: 2,
-              notes: [
-                { name: "c", length: 4, octave: 1, dots: 1 },
-              ]
-            }
-          ]
-        ];
+        // var notesStaffOne = [
+        //   [
+        //     {
+        //       name: "voice",
+        //       voiceNumber: 1,
+        //       notes: [
+        //         { name: "c", length: 4, octave: 2, dots: 1 },
+        //       ]
+        //     },
+        //     {
+        //       name: "voice",
+        //       voiceNumber: 2,
+        //       notes: [
+        //         { name: "c", length: 4, octave: 1, dots: 1 },
+        //       ]
+        //     }
+        //   ]
+        // ];
 
         //non-parallel voices, which are essentially useless
-        var notesStaffTwo = [
-          { name: "c", length: 4, octave: 1, dots: 1}
-        ];
+        // var notesStaffTwo = [
+        //   { name: "c", length: 4, octave: 1, dots: 1}
+        // ];
 
-        var staffOne = {
-          clef: "treble",
-          time: "2/2",
-          //key: "cis",
-          //hideClef: true, // test to hide clef
-          notes: notesStaffOne
-        };
+        // var staffOne = {
+        //   clef: "treble",
+        //   time: "2/2",
+        //   //key: "cis",
+        //   //hideClef: true, // test to hide clef
+        //   notes: notesStaffOne
+        // };
 
         // var staffTwo = {
         //   clef: "bass",
@@ -221,18 +222,19 @@
         //   notes: notesStaffTwo
         // };
 
-        var score = {
-          //staffs: [staffOne, staffTwo, staffThree, staffFour, staffFive]
-          //staffs: [staffOne, staffTwo]
-          staffs: [staffOne]
-        };
+        // var score = {
+        //   //staffs: [staffOne, staffTwo, staffThree, staffFour, staffFive]
+        //   //staffs: [staffOne, staffTwo]
+        //   staffs: [staffOne]
+        // };
 
         var p = Presto.Score.from('example');
         window.setTimeout(function () {
-          p.parse(score);
-          p.notate();
-          p.render();
-        },100);
+          codeDidChange();
+          // p.parse(score);
+          // p.notate();
+          // p.render();
+        }, 200);
 
         function codeDidChange () {
           console.log('codeDidChange');

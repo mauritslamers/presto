@@ -35,13 +35,13 @@
 
 <p>Presto is a Canvas based music notation system for the web. It only requires an HTML5 compliant browser.</p>
 
-<p>The purpose of Presto is to have an as readable as possible notation system for the web which excels at excerpts and which is able to display the notation of the given music nearly instantaneous.
+<p> Please try out the <a href="experiment.html">Demo</a> and let me know what you think! </p>
+
+<p>The purpose of Presto is to have an as readable as possible notation system for the web which excels at excerpts and which is able to display the notation of the given music nearly instantaneous.<br/>
 It takes the LilyPond notation system as main example, trying to come as close as possible to its elegance, but trying to never sacrifice speed in the process. Presto will therefore never be a complete notation system, but of course tries to come as close as possible.
 It uses the Lilypond Emmentaler font as a webfont for the best possible graphical result.</p>
 
 <p>As Presto is very much in active development, this document contains elements which are intended to be supported at some point but in the API description below is indicated whether a feature is implemented.</p>
-
-<p><a href="experiment.html">Demo</a></p>
 
 <h2>
 <a id="things-to-keep-in-mind" class="anchor" href="#things-to-keep-in-mind" aria-hidden="true"><span class="octicon octicon-link"></span></a>Things to keep in mind</h2>
@@ -50,16 +50,19 @@ It uses the Lilypond Emmentaler font as a webfont for the best possible graphica
 
 <ul>
 <li>it doesn't check whether bars are full</li>
-<li>it doesn't remove double accidentals in a bar, so you will get an accidental every time you put a note with a accidental</li>
 <li>it doesn't check voicings (and it doesn't have a voice context), meaning that you have to manually set the stem direction on every note, and it might be that polyphony doesn't work correctly. It tries however to correctly display the polyphonic aspects of note heads and stems (see the tests for an example)</li>
 <li>it doesn't properly align anything (in a bar)</li>
 <li>it doesn't support beaming of eighth or sixteenth notes</li>
 <li>it draws a bar as wide as the width of the canvas element</li>
 </ul>
 
-<p>The way you currently have to enter the music is plain JavaScript object and array literals. This can be complex for an ordinary user.
-This is done however in order to be fast in the processing and the notation as well as be able to retrieve the notation from a server
-and display immediately. In the future a different syntax might be added as a front end (such as the Lilypond syntax).</p>
+<p>There are two ways in which you can enter music:
+  <ul>
+    <li> plain JavaScript object and array literals </li>
+    <li> basic Lilypond code </li>
+  </ul>
+  The first is the most appropriate when you want to integrate notation into a webpage or application and want to quickly change things interactively. The second is very handy when you want to quickly show some notes. The demo uses the second approach, but in the source of the page and in the example below you can see how you can enter notes programmatically.
+</p>
 
 <h2>
 <a id="how-to-get-started" class="anchor" href="#how-to-get-started" aria-hidden="true"><span class="octicon octicon-link"></span></a>How to get started</h2>
@@ -74,7 +77,7 @@ Before you can notate anything, you will have to create a HTML page with a canva
   staffs: [
     {
       clef: "treble",
-      key: "c",
+      key: "c major",
       time: "4/4"
       notes: [
         {
@@ -90,7 +93,7 @@ window.setTimeout(function () {
   p.parse(score);
   p.notate();
   p.render();
-},100);
+}, 200);
 
 </code></pre>
 
@@ -227,9 +230,9 @@ yourselves.</p>
 <p>The system renders the musical notation in three phases:</p>
 
 <ol>
-<li>The first phase is parsing the input into an internal grob based representation</li>
-<li>The second phase will fine tune the positioning of the internal representation</li>
-<li>The third phase renders a new representation in absolute positioned grobs which gets rendered to the canvas element.</li>
+<li>The first phase (parse) is parsing the input into an initial internal representation</li>
+<li>The second phase (notate) will convert the music into relatively positioned grobs</li>
+<li>The third phase (render) renders the relatively positioned grobs into absolutely positioned elements on the canvas element based on a given coordinate. Among other things this allows you to scroll a piece of music without having to rerender the music itself.</li>
 </ol>
       </section>
       <footer>

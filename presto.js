@@ -806,6 +806,12 @@ Presto.lilypondParser = {
   _timeRegex: /\\time ([0-9])\/([1|2|4|8|16])/,
 
   /**
+   * regex to match a key signature
+   * @type {RegExp}
+   */
+  _keyRegex: /\\key (.+) (\\major|\\minor)/,
+
+  /**
    * regex to match a parallel block
    * @type {RegExp}
    */
@@ -827,7 +833,7 @@ Presto.lilypondParser = {
    * regex to match (and parse) a chord
    * @type {[type]}
    */
-  _chordRegex: /\\<(.+)\>([1|2|4|8|16]?)(\.*)/,
+  _chordRegex: /<(.+)>([1|2|4|8|16]?)(\.*)/,
 
 
   parseLilypond: function (code) {
@@ -846,41 +852,51 @@ Presto.lilypondParser = {
     else {
       score = score[0].trim();
       parallel = this._parallelRegex.exec(score);
-      if (parallel) { //
-        staffs.forEach(function (s) {
-          var r = {
-            notes: []
-          };
-          s = this._staffRegex.exec(s)[1];
-          var clef = this._clefRegex.exec(s);
-          if (clef){
-            r.clef = clef[1];
-            // remove clef from code
-            s = s.slice(0,clef.index) + s.slice(clef.index+clef[0].length);
-            s = s.trim();
+      //if (parallel) { // not sure why this is important, except perhaps
+      //that staffs should otherwise be processed in parallel.
+      //let's leave that for now
+      staffs.forEach(function (s) {
+        var r = {
+          notes: []
+        };
+        s = this._staffRegex.exec(s)[1];
+        var clef = this._clefRegex.exec(s);
+        if (clef){
+          r.clef = clef[1];
+          // remove clef from code
+          s = s.slice(0, clef.index) + s.slice(clef.index+clef[0].length);
+          s = s.trim();
+        }
+        var time = this._timeRegex.exec(s);
+        if (time) {
+          r.time = time[1] + "/" + time[2]; // done to prevent having unparseable values
+          s = s.slice(0, time.index) + s.slice(time.index + time[0].length);
+          s = s.trim();
+        }
+        var key = this._keyRegex.exec(s);
+        if (key) {
+          r.key = key[1];
+          if (key[2]) {
+            r.key += " " + key[2].slice(1);
           }
-          var time = this._timeRegex.exec(s);
-          if (time) {
-            r.time = time[1] + "/" + time[2]; // done to prevent having unparseable values
-            s = s.slice(0,time.index) + s.slice(time.index+time[0].length);
-            s = s.trim();
-          }
-          // then parsing of contents, which can be either relative, absolute or a mix
-          parallel = this._parallelRegex.exec(s);
-          if (parallel) { // we have parallel voices
-            voices = [];
-            this.findBlock("Voice", s).forEach(function (v) {
-              v = this._voiceRegex.exec(v)[1];
-              voices.push(this.parseVoice(v));
-            }, this);
-            r.notes.push(voices);
-          }
-          else {
-            r.notes.push([this.parseVoice(s)]);
-          }
-          ret.staffs.push(r);
-        }, this);
-      }
+          s = s.slice(0, key.index) + s.slice(key.index + key[0].length);
+          s = s.trim();
+        }
+        // then parsing of contents, which can be either relative, absolute or a mix
+        parallel = this._parallelRegex.exec(s);
+        if (parallel) { // we have parallel voices
+          voices = [];
+          this.findBlock("Voice", s).forEach(function (v) {
+            v = this._voiceRegex.exec(v)[1];
+            voices.push(this.parseVoice(v));
+          }, this);
+          r.notes.push(voices);
+        }
+        else {
+          r.notes.push([this.parseVoice(s)]);
+        }
+        ret.staffs.push(r);
+      }, this);
     }
 
     return ret;
@@ -949,7 +965,7 @@ Presto.lilypondParser = {
       }
       if (curItem === "<" && v[i+1] !== "<") { // chord
         next = v.indexOf(">", i);
-        match = this._chordRegex(v.slice(i));
+        match = this._chordRegex.exec(v.slice(i));
         if (!match) {
           throw new Error("Chord syntax error");
         }
@@ -1013,7 +1029,7 @@ Presto.lilypondParser = {
       if (n) {
         if (!n.length) n.length = length;
         if (dots) n.dots = dots.length;
-        prev = n;
+        if (reference) prev = n; // only provide prev when in relative mode
         ret.push(n);
       }
     }, this);
@@ -2054,6 +2070,9 @@ Presto.Symbol = Presto.Grob.extend({
         this.width = metrics.width;
       }
     }
+    if (!this.name) {
+      throw new Error("cannot print an undefined symbol!");
+    }
   },
 
   renderProperties: ['name', 'fontSize'],
@@ -2374,6 +2393,18 @@ Presto.Note = Presto.Grob.extend({
   octave: null,
 
   /**
+   * the alteration of the note, -1 for flat, +1 for sharp
+   * @type {Number}
+   */
+  alteration: null,
+
+  /**
+   * The alteration of the staff
+   * @type {Number}
+   */
+  staffAlteration: null,
+
+  /**
    * Basic length of the note, either 1, 2, 4, 8, 16
    * @type {Number}
    */
@@ -2531,6 +2562,24 @@ Presto.Note = Presto.Grob.extend({
   },
 
   /**
+   * calculates the alteration, and sets it to the note alteration propery, as well
+   * as return that value
+   * @return {Number} Alteration
+   */
+  calculateAlteration: function () {
+    var name = this.get('name');
+    var ret = 0; //Natural
+    if (name.indexOf("is") > -1) {
+      ret = (name.indexOf("sis") > -1) ? Presto.Note.ALT_DBLSHARP : Presto.Note.ALT_SHARP;
+    }
+    else if (name.indexOf("s") > -1 || name.indexOf("es") > -1) {
+      ret = (name.indexOf("ses") > -1) ? Presto.Note.ALT_DBLFLAT : Presto.Note.ALT_FLAT;
+    }
+    this.alteration = ret;
+    return ret;
+  },
+
+  /**
    * Calculate from the name whether this note has an accidental.
    *
    * @return {String|Boolean} false if none, otherwise it returns the character name
@@ -2580,11 +2629,72 @@ Presto.Note = Presto.Grob.extend({
     return this;
   },
 
+  // accidentals need to be revised a bit, because there are more options than just the
+  // accidental belonging to the note name, not in the least when also one or more naturals are
+  // required
+  // Effectively, the best would be to have a resetAccidental, which first removes the current ones, then
+  // insert the new ones.
+  // Technically, it would even be better to have the staffAlteration
+  // setup with the creation of the note itself, problem of course is that at the moment of creation
+  // the note column doesn't know yet what the rootTone of this note will be
+  //
+  // rules:
+  // - if the alteration is the same, check whether there is an accidental involved
+  //   and if yes, remove it, unless isNatural is already set, because that means to leave it
+  // - else, add naturals until either 0 is reached
+  addAlterations: function () {
+    var staffAlt = this.get('staffAlteration') || 0; // assume zero if not set
+    var alt = this.alteration || this.calculateAlteration();
+    var alterations = [];
+    var i;
+    var accs = [];
+    if (staffAlt !== alt) { // only add something when necessary
+      if (staffAlt < alt && staffAlt < 0) { // lower, add till note encountered or on 0
+        for (i = staffAlt; i < 0; i += 1) {
+          if (alt !== i) accs.push("accidentals.natural");
+        }
+      }
+      else if (staffAlt > alt && staffAlt > 0) {
+        for (i = staffAlt; i > 0; i -= 1) {
+          if (alt !== i) accs.push("accidentals.natural");
+        }
+      }
+      // in both cases: add the normal accidental when there is one
+      if (alt !== 0) accs.push(this.get('accidentalName'));
+    }
+    // now insert the alterations
+    var x = 0;
+    accs.reverse().forEach(function (a) {
+      var acc = Presto.Symbol.create({
+        score: this.score,
+        staff: this.staff,
+        name: a,
+        isAccidental: true
+      });
+      acc.x = x - (acc.get('width') * 1.5);
+      x = acc.x;
+      this.addChildGrob(acc);
+      alterations.push(acc);
+    }, this);
+    this.alterations = Presto.Array.create(alterations);
+  },
+
   init: function () {
+    // look up the name, and set values
+    var lang = this.score ? this.score.get('language') : "nl"; // default lang is nl
+    var name = this.get('name');
+    var h = Presto.Note.noteNames[lang][name];
+    if (!h) throw new Error("invalid note name, or invalid language setting");
+    // we could do a mixin, but it seems a bit overkill (and possible performance issues)
+    // for just two properties.
+    this.alteration = h.alteration;
+    this.rootTone = h.rootName;
+    // assume octave is set differently
     if (this.isPlaceholder) return;
 
     // the init runs the adding procedure in the same order as the elements are going to appear
-    this.addAccidental();
+    //this.addAccidental();
+    this.addAlterations();
     this.addHelperLines(); // helper lines first, as they need to be overwritten
     this.addNoteHead();
     this.addStem();
@@ -2756,6 +2866,16 @@ Presto.Note = Presto.Grob.extend({
 
 Presto.mixin(Presto.Note, {
 
+  /**
+   * Alteration enums
+   * @type {Number}
+   */
+  ALT_DBLFLAT: -2,
+  ALT_FLAT: -1,
+  ALT_NATURAL: 0,
+  ALT_SHARP: 1,
+  ALT_DBLSHARP: 2,
+
   // all kinds of calculations with notes, such as intervals etc
   // use note instances if possible (?)
 
@@ -2767,6 +2887,7 @@ Presto.mixin(Presto.Note, {
    * @param  {Presto.Note} noteTwo Second note
    * @return {Number}         Zero-based distances between notes
    */
+  //TODO: make this use the defined language
   distanceBetween: function (noteOne, noteTwo) {
     if (!noteOne.isNote || !noteTwo.isNote) {
       throw new Error ("Presto.Note.distanceBetween: Please use note instances");
@@ -2826,541 +2947,65 @@ Presto.mixin(Presto.Note, {
     }
     return false;
   }
+
 });
 
 
-// /*globals CanvasMusic, console */
 
-// // A note consists of a few elements
-// // - (possibly) an accidental
-// // - a noteShape with:
-// //   - stem (possibly)
-// //   - helper lines (possibly)
-// //   - note head
+/*globals Presto*/
 
-// CanvasMusic.Note = CanvasMusic.Grob.extend({
-//   isNote: true, // quack like a duck
+/**
+ * Note name definitions
+ */
 
-//   name: null, // note name (c-b, cis - bis, ces - bes etc)
-//   octave: null, // in which octave this note exists
-//   length: null, // which length? 1, 2, 4, 8, 16 (we could perhaps support brevis as 1/2 and longa as 1/4)?
-//   dots: null, // how many dots this note should have
-//   natural: null, // should the note display a natural accidental?
-//   stemUp: null, // does this note have the stem up?
-//   stemDown: null, // does this note have the stem down?
-//   hideStem: null, // should this note hide its stem?
-//   markup: null, // do we have markup on this note?
-//   markupAlign: SC.ALIGN_CENTER, // default markup is centered
-//   markupDown: false,
-//   marginLeft: null,
-//   marginRight: null,
+Presto.mixin(Presto.Note, {
+  noteNames: {
+    nl: {
+      rootNotes: ['c', 'd', 'e', 'f', 'g', 'a', 'b'],
+      ceses:  { octave: 0, rootName: "c", alteration: -2 },
+      ces:    { octave: 0, rootName: "c", alteration: -1 },
+      c:      { octave: 0, rootName: "c", alteration: 0 },
+      cis:    { octave: 0, rootName: "c", alteration: 1 },
+      cisis:  { octave: 0, rootName: "c", alteration: 2 },
 
-//   _debugNote: false,
-//   //debugGrob: true,
+      deses:  { octave: 0, rootName: "d", alteration: -2 },
+      des:    { octave: 0, rootName: "d", alteration: -1 },
+      d:      { octave: 0, rootName: "d", alteration: 0 },
+      dis:    { octave: 0, rootName: "d", alteration: 1 },
+      disis:  { octave: 0, rootName: "d", alteration: 2 },
 
-//   // if the note is not to be drawn but used as a container for note information, isPlaceholder
-//   // should be set to true
-//   isPlaceholder: false,
+      eses:   { octave: 0, rootName: "e", alteration: -2 },
+      es:     { octave: 0, rootName: "e", alteration: -1 },
+      e:      { octave: 0, rootName: "e", alteration: 0 },
+      eis:    { octave: 0, rootName: "e", alteration: 1 },
+      eisis:  { octave: 0, rootName: "e", alteration: 2 },
 
-//   // what is the parent staff of this note... Pretty important as we will need to look up things
-//   // such as what height we are related to the staff, as we need to lengthen the stem accordingly
-//   parentStaff: null,
+      feses:  { octave: 0, rootName: "f", alteration: -2 },
+      fes:    { octave: 0, rootName: "f", alteration: -1 },
+      f:      { octave: 0, rootName: "f", alteration: 0 },
+      fis:    { octave: 0, rootName: "f", alteration: 1 },
+      fisis:  { octave: 0, rootName: "f", alteration: 2 },
 
-//   cm: null, // hook for the canvas music instance
+      geses:  { octave: 0, rootName: "g", alteration: -2 },
+      ges:    { octave: 0, rootName: "g", alteration: -1 },
+      g:      { octave: 0, rootName: "g", alteration: 0 },
+      gis:    { octave: 0, rootName: "g", alteration: 1 },
+      gisis:  { octave: 0, rootName: "g", alteration: 2 },
 
-//   init: function () {
-//     // should determine a few things, such as stem length
-//     // essentially sets up the basic list of childGrobs
-//     arguments.callee.base.apply(this, arguments);
-//     this._defaultMargin = this.getPath('cm.size') / 2;
-//     this.marginLeft = this.marginRight = this._defaultMargin;
-//     // we first calculate which direction the stem needs to be as it determines what comes first
-//     // the notehead or the stem
-//     if (!this.isPlaceholder) { // only calculate when actually used for display
-//       this.calculateNote(); // will also do the stem
-//     }
-//     if (this._debugNote) {
-//       //window.NOTE = this;
-//     }
-//   },
+      ases:   { octave: 0, rootName: "a", alteration: -2 },
+      as:     { octave: 0, rootName: "a", alteration: -1 },
+      a:      { octave: 0, rootName: "a", alteration: 0 },
+      ais:    { octave: 0, rootName: "a", alteration: 1 },
+      aisis:  { octave: 0, rootName: "a", alteration: 2 },
 
-//   width: function () {
-//     // the width of a grob is the width of the contents, and the marginLeft and marginRight
-//     var ret = this.get('marginLeft') + this.get('marginRight');
-//     if (!this.get('skipWidth')) {
-//       ret += this.get('widthOfChildGrobs');
-//     }
-//     return ret;
-//   }.property(),
-
-//   noteHeadLeft: null, // set by the note rendering process, for aligning purposes...
-
-//   // API stuff
-//   noteId: function () {
-//     var n = this.get('name'), o = this.get('octave');
-//     if (!n) throw new Error("CanvasMusic.Note: a note without a name??" + SC.inspect(this));
-//     //return n[0] + o;
-//     return n + o;
-//   }.property('name', 'octave').cacheable(),
-
-//   // give back the root tone, without any accidentals
-//   rootTone: function () {
-//     return this.get('name')[0];
-//   }.property('name').cacheable(),
-
-//   noteHead: function () { // can be overridden or extended if required
-//     var l = this.get('length');
-//     if (l === 1) {
-//       return "noteheads.s0"; // whole
-//     }
-//     else if (l === 2) {
-//       return "noteheads.s1"; // half
-//     }
-//     else {
-//       return "noteheads.s2"; // quarter
-//     }
-//   }.property('length').cacheable(),
-
-//   noteFlag: function () {
-//     var l = this.get('length');
-//     var stemUp = this.get('stemUp');
-//     var stemDown = this.get('stemDown');
-//     if (l < 8) return false;
-//     else {
-//       if (stemUp) {
-//         if (l === 8) return "flags.u3";
-//         if (l === 16) return "flags.u4";
-//       }
-//       if (stemDown) {
-//         if (l === 8) return "flags.d3";
-//         if (l === 16) return "flags.d4";
-//       }
-//     }
-//   }.property('length').cacheable(),
-
-//   flipStem: function () {
-//     if (this.get('stemUp')) {
-//       this.set('stemUp', false);
-//       this.set('stemDown', true);
-//     }
-//     else {
-//       this.set('stemDown', false);
-//       this.set('stemUp', true);
-//     }
-//     // recalculation of the note creates problem if the stem is flipped mid-column stack...
-//     // so, instead of recalculation, we better simply reverse the order, and recalculate the stem
-//     // here...
-//     // or should we recalculate after all, save the offsets first, then reapply?
-
-//     var marginLeft = this.marginLeft;
-//     // var nS = this.get('noteShape');
-//     var noteShapeMarginLeft = this.getPath('noteShape.marginLeft');
-//     var isShifted = this.get('isShifted');
-//     this.childGrobs.forEach(function (cg) { cg.destroy(); });
-//     this.set('childGrobs', []); // should also reset noteShape computed property
-//     var noteHeadLeft = this.noteHeadLeft; // save as calculateNote resets it
-//     this.calculateNote();
-//     // now reapply
-//     this.set('noteHeadLeft', noteHeadLeft);
-//     this.set('marginLeft', marginLeft);
-//     var newNS = this.get('noteShape');
-//     // if (newNS === nS) SC.Logger.log("WARNING: noteShape property did not refresh properly? %@, %@".fmt(SC.guidFor(nS), SC.guidFor(newNS)));
-//     this.set('isShifted', isShifted);
-//     newNS.set('marginLeft', noteShapeMarginLeft);
-//     //
-
-//     //
-//     //
-//     // // in both cases, recalculate the note
-//     // this.childGrobs.forEach(function (cg) { cg.destroy(); });
-//     // this.childGrobs = [];
-//     // var noteHeadLeft = this.noteHeadLeft; // save as calculateNote resets it
-//     // this.calculateNote();
-//     // this.noteHeadLeft = noteHeadLeft; // replace for now... perhaps some intelligent replacement later...
-//     return this;
-//   },
-
-//   // function which both
-//   removeStem: function () {
-//     this.noStem = true;
-//     //console.log('removeStem!');
-//     var cg = this.get('childGrobs').findProperty('isNoteShape').get('childGrobs');
-//     cg.removeObject(cg.findProperty('isStem', true));
-//     return this;
-//   },
-
-//   calculateAccidental: function(){
-//     var name = this.get('name');
-//     var size = this.getPath('cm.size');
-//     var noteTop = this.get('parentStaff').verticalOffsetFor(this);
-//     var acc;
-//     var mix = { cm: this.get('cm'), y: noteTop, parentGrob: this };
-//     var glyphName;
-
-//     if(name.indexOf("is") > -1){ // something with sharp
-//       glyphName = (name.indexOf("sis") > -1) ? 'accidentals.doublesharp' : 'accidentals.sharp';
-//     }
-//     else if(name.indexOf("s") > -1 || name.indexOf("es") > -1) { // we have flat
-//       glyphName = (name.indexOf("ses") > -1 || name.indexOf("sas") > -1) ? 'accidentals.flatflat' : 'accidentals.flat';
-//     }
-//     if (this.get('natural')) { //add natural first
-//       acc = CanvasMusic.Symbol.create(mix, {
-//         name: 'accidentals.natural',
-//         marginLeft: 0,
-//         marginRight: 4,
-//         isAccidental: true,
-//         //debugGrob: true
-//       });
-//       this.addChildGrob(acc);
-//       this.noteHeadLeft += acc.get('width');
-//       if (!this.hasAccidental) this.hasAccidental = true;
-//     }
-//     if (glyphName) {
-//       acc = CanvasMusic.Symbol.create(mix, {
-//         name: glyphName,
-//         marginLeft: 0,
-//         marginRight: 4,
-//         isAccidental: true,
-//         //debugGrob: true
-//       });
-//       this.addChildGrob(acc);
-//       this.noteHeadLeft += acc.get('width');
-//       if (!this.hasAccidental) this.hasAccidental = true;
-//     }
-//   },
-
-//   calculateStemDirection: function(){
-//     var index;
-//     // stem direction already defined, nothing to do, except make sure that they are both set.
-//     if (this.get('stemUp') || this.get('stemDown')) {
-//       if (this.get('stemUp')) this.set('stemDown', false);
-//       if (this.get('stemDown')) this.set('stemUp', false);
-//       return;
-//     }
-//     index = this.get('parentStaff').indexFor(this);
-//     // yes this will also set a stem on a whole note, but it is ignored
-//     //if (index <= CanvasMusic.Staff.MIDDLENOTE_INDEX) { // indexes above the middle note are negative
-//     if (index <= this.getPath('parentStaff.middleNoteIndex')) {
-//       this.set('stemUp', true).set('stemDown', false);
-//     }
-//     else {
-//       this.set('stemDown', true).set('stemUp', false);
-//     }
-//     this._automaticStem = true;
-//   },
-
-//   noteShape: function () {
-//     return this.get('childGrobs').findProperty('isNoteShape');
-//   }.property('childGrobs').cacheable(),
-
-//   stemLength: function () {
-//     //debugger;
-//     var pS = this.get('parentStaff');
-//     var size = pS.get('size');
-//     var absNotePos = pS.absoluteStaffPositionFor(this);
-//     var staffTopPosition = pS.get('staffTopPosition');
-//     var staffBottomPosition = pS.get('staffBottomPosition');
-//     var stemUp = this.get('stemUp');
-//     var stemDown = this.get('stemDown');
-//     var firstLine = staffBottomPosition + 1;
-//     var thirdLine = staffBottomPosition + 5;
-//     var noteTop = pS.verticalOffsetFor(this);
-
-//     var stemIsShort = (stemDown && absNotePos < firstLine) || (stemUp && absNotePos > staffTopPosition);
-//     var stemIsFixed = (stemDown && absNotePos > (staffTopPosition + 2)) || (stemUp && (absNotePos < staffBottomPosition - 2));
-//     var stemIsIncreasing = !stemIsShort && ((stemDown && absNotePos <= thirdLine) || (stemUp && absNotePos >= thirdLine));
-//     // is steady is anything else
-//     var stemLength;
-
-//     if (stemIsShort) stemLength = 2.2 * size;
-//     else if (stemIsFixed) { // top is the 3rd line, the height is the difference between the current note y
-//       stemLength = Math.abs(noteTop - pS.topOfStaffLineFor(pS.get('numberOfLines') - 2));
-//     }
-//     else if (stemIsIncreasing) stemLength = (2.2 + (1/5*absNotePos)) * size;
-//     else {
-//       stemLength = 3.2 * size;
-//     }
-//     return stemLength;
-//   }.property('stemUp','stemDown').cacheable(),
-
-//   calculateNote: function () {
-//     // the rules for the stem:
-//     // - when the stem is down
-//     //    - when the note is lower than the first line, it is two long
-//     //    - until the note reaches the third line, the length is interpolated between two and three
-//     //    - until the note is one step above the first helper line, the length is three staff lines
-//     //    - when the note is more than one step above the first helper line (which is staffTop + 2), the bottom is always the
-//     //      second line from above (numberOfLines - 2)
-//     // - when the stem is up
-//     //   exactly the same as when the stem is down, but then in reverse (horizontal mirror)
-//     // So: four groups:
-//     // - short
-//     // - increasing
-//     // - steady
-//     // - fixedToStaff
-//     //
-
-//     this.noteHeadLeft = 0; //we should not reset noteHeadLeft
-//     this.calculateAccidental();
-//     this.calculateStemDirection();
-
-//     var pS = this.get('parentStaff'),
-//         size = pS.get('size'),
-//         stemDown = this.get('stemDown'),
-//         noteTop = pS.verticalOffsetFor(this),
-//         noteFlag = this.get('noteFlag'),
-//         // numberOfHelperLine returns -1 for one line under the staff, 1 for one line above the staff
-//         numberOfHelperLines = pS.numberOfHelperLinesFor(this),
-//         numDots = this.get('dots'),
-//         stemLength = this.get('stemLength'),
-//         staffTopPosition = pS.topOfStaffLineFor(pS.get('numberOfLines')),
-//         staffBottomPosition = pS.topOfStaffLineFor(1),
-//         mix = { cm: this.get('cm') },
-//         i, noteHeadSymbol, noteHeadWidth, helperLineWidth, helperLineOffset = 0;
-
-//     var noteShape = CanvasMusic.Grob.create(mix, {
-//       isNoteShape: true,
-//       parentGrob: this,
-//       //debugGrob: true,
-//       marginLeft: 0,
-//       toString: function () {
-//         return "CanvasMusic.NoteShape %@, id: %@".fmt(SC.guidFor(this), this.parentGrob.get('noteId'));
-//       }
-//     });
-
-//     noteHeadSymbol = CanvasMusic.Symbol.create(mix, {
-//       name: this.get('noteHead'),
-//       parentGrob: noteShape,
-//       isNoteHead: true,
-//       y: noteTop
-//     });
-//     noteHeadWidth = noteHeadSymbol.get('width');
-
-//     if (numberOfHelperLines !== 0) { // there are helper lines
-//       // we need to extend the staff lines, so we take the parentStaff line values and add size
-//       helperLineWidth = noteHeadWidth * 1.85;
-//       helperLineOffset = (helperLineWidth - noteHeadWidth) / 2;
-//       this._helperLineOffset = helperLineOffset;
-//       if (numberOfHelperLines > 0) { // above the staff
-//         for (i = 0; i < numberOfHelperLines; i += 1) {
-//           noteShape.addChildGrob(CanvasMusic.Line.create(mix, {
-//             parentGrob: noteShape,
-//             marginLeft: -helperLineOffset,
-//             marginRight: helperLineOffset,
-//             y: staffTopPosition - (size * (i + 1)) + ((i+1) * pS.get('staffLineThickness')),
-//             width: helperLineWidth,
-//             skipWidth: true,
-//             isHelperLine: true
-//           }));
-//         }
-//       }
-//       else { // under the staff
-//         for (i = 0; i > numberOfHelperLines; i -= 1) {
-//           noteShape.addChildGrob(CanvasMusic.Line.create(mix, {
-//             parentGrob: noteShape,
-//             y: staffBottomPosition + (size * (Math.abs(i) + 1)) + ((i-1) * pS.get('staffLineThickness')),
-//             marginLeft: -helperLineOffset,
-//             marginRight: helperLineOffset,
-//             width: helperLineWidth,
-//             lineWidth: pS.get('staffLineThickness'),
-//             skipWidth: true,
-//             isHelperLine: true
-//           }));
-//         }
-//       }
-//       //noteHeadSymbol.move('marginLeft', helperLineOffset);
-//     }
-
-//     if (stemDown) { // stem comes first
-//       if (this.get('length') > 1 && !this.get('noStem')) {
-//         noteShape.addChildGrob(CanvasMusic.Stem.create(mix, {
-//           parentGrob: noteShape,
-//           y: noteTop + size * 0.2,
-//           height: stemLength,
-//           noteFlag: noteFlag,
-//           parentStaff: pS,
-//           stemIsDown: true,
-//           skipWidth: true,
-//         }));
-//         noteShape.height = stemLength;
-//       }
-//       noteShape.addChildGrob(noteHeadSymbol);
-//     }
-//     else { // stem up, notehead first
-//       noteShape.addChildGrob(noteHeadSymbol);
-//       if (this.get('length') > 1 && !this.get('noStem')) {
-//         noteShape.addChildGrob(CanvasMusic.Stem.create(mix, {
-//           y: noteTop - 1,
-//           stemIsUp: true,
-//           height: -stemLength,
-//           noteFlag: noteFlag,
-//           parentStaff: pS,
-//           skipWidth: true
-//         }));
-//         noteShape.height = stemLength;
-//       }
-//     }
-
-//     if (numDots && numDots > 0) {
-//       for (i = 0; i < numDots; i += 1) {
-//         noteShape.addChildGrob(CanvasMusic.Symbol.create(mix, {
-//           parentGrob: noteShape,
-//           y: noteTop,
-//           marginLeft: (noteHeadWidth * (0.3 * (i + 1))),
-//           name: "dots.dot",
-//           autoAdjustOnAdd: true
-//         }));
-//       }
-//     }
-//     this.addChildGrob(noteShape);
-//   },
-
-//   moveNote: function (amount) {
-//     var a = amount || 0;
-//     this.get('noteShape').move('marginLeft', a);
-//     this.noteHeadLeft += a;
-//     return this;
-//   },
-
-//   // shift note exists for the column to move the note shape inside a chord.
-//   //
-//   //in some cases the column needs to be able to tell the note how much to move, for example
-//   //if the note in front has an accidental, this note should move more than its own length
-//   shiftNote: function (amount) {
-//     var noteShape = this.get('noteShape');
-
-//     amount = amount || noteShape.get('width');
-//     noteShape.move('marginLeft', amount);
-//     this.noteHeadLeft += amount;
-//     this.isShifted = true;
-//     return this;
-//   },
-
-//   unshiftAccidentals: function () {
-//     var accidentals = this.childGrobs.filterProperty('isAccidental');
-//     accidentals.forEach(function (a) {
-//       var w = a.get('width') / 2;
-//       a.move('marginLeft', -w);
-//       a.move('marginRight', w);
-//     }, this);
-//   },
-
-//   toString: function () {
-//     return "CanvasMusic.Note %@, id: %@".fmt(SC.guidFor(this), this.get('noteId'));
-//   }
-
-//   // calculateStem: function () {
-//   //   if(note.length > 1 && !note.noStem){ // only draw stem if required
-//   //     if(note.stemUp){
-//   //       switch(note.length){
-//   //         case 2:
-//   //           ret.push({
-//   //             type: "line", lineWidth: 1.8 * scaleSize,
-//   //             from_x: note.x + this.size * 0.66, from_y: note.y + 10*scaleSize,
-//   //             to_x: note.x + this.size * 0.66, to_y: note.y - 31*scaleSize
-//   //           });
-//   //           break;
-//   //         case 8:
-//   //           ret.push({
-//   //             type: "line", lineWidth: 1.8 * scaleSize,
-//   //             from_x: note.x + this.size * 0.6, from_y: note.y + 10*scaleSize,
-//   //             to_x: note.x + this.size * 0.6, to_y: note.y - 35*scaleSize
-//   //           });
-//   //           ret.push({
-//   //             type: "flags_eight_up",
-//   //             x: note.x + this.size * 0.4,
-//   //             y: note.y-35
-//   //           });
-//   //           break;
-//   //         case 16:
-//   //           ret.push({
-//   //             type: "line", lineWidth: 1.8 * scaleSize,
-//   //             from_x: note.x + this.size * 0.6, from_y: note.y + 10*scaleSize,
-//   //             to_x: note.x + this.size * 0.6, to_y: note.y - 35*scaleSize
-//   //           });
-//   //           ret.push({
-//   //             type: "flags_sixteen_up",
-//   //             x: note.x + this.size * 0.45, y: note.y - 35
-//   //           });
-//   //           break;
-//   //         default:  // other cases
-//   //           ret.push({
-//   //             type: "line", lineWidth: 1.8 * scaleSize,
-//   //             from_x: note.x + this.size * 0.6, from_y: note.y + 10*scaleSize,
-//   //             to_x: note.x + this.size * 0.6, to_y: note.y - 31*scaleSize
-//   //           });
-//   //           break;
-//   //       }
-//   //     }
-//   //     else if(note.stemDown){
-//   //       switch(note.length){
-//   //         case 8:
-//   //           ret.push({
-//   //             type: "line", lineWidth: 1.8 * scaleSize,
-//   //             from_x: note.x + this.size * 0.2, from_y: note.y + 13*scaleSize,
-//   //             to_x: note.x + this.size * 0.2, to_y: note.y + 58*scaleSize
-//   //           });
-//   //           ret.push({
-//   //             type: "flags_eight_down",
-//   //             x: note.x + this.size * 0.09, y: note.y + 15
-//   //           });
-//   //           break;
-//   //         case 16:
-//   //           ret.push({
-//   //             type: "line",
-//   //             lineWidth: 1.8 * scaleSize,
-//   //             from_x: note.x + this.size * 0.2, from_y: note.y + 13*scaleSize,
-//   //             to_x: note.x + this.size * 0.2, to_y: note.y + 58*scaleSize
-//   //           });
-//   //           ret.push({
-//   //             type: "flags_sixteen_down",
-//   //             x: note.x + this.size * 0.09, y: note.y +15
-//   //           });
-//   //           break;
-//   //         default:
-//   //           ret.push({
-//   //             type: "line", lineWidth: 1.8 * scaleSize,
-//   //             from_x: note.x + this.size * 0.2, from_y: note.y + 13*scaleSize,
-//   //             to_x: note.x + this.size * 0.2, to_y: note.y + 52*scaleSize
-//   //           });
-//   //           break;
-//   //       }
-//   //     }
-//   //   }
-//   // }
-
-// });
-
-// SC.mixin(CanvasMusic.Note, {
-//   // all kinds of calculations with notes, such as intervals etc
-//   // use note instances if possible (?)
-
-//   _noteNames: ['c', 'd', 'e', 'f', 'g', 'a', 'b'],
-
-//   distanceBetween: function (noteOne, noteTwo) {
-//     if (!SC.instanceOf(noteOne, CanvasMusic.Note) || !SC.instanceOf(noteTwo, CanvasMusic.Note)) {
-//       throw new Error ("CanvasMusic.Note.distanceBetwee: Please use note instances instead");
-//     }
-//     var nn = this._noteNames;
-//     var firstNote = noteOne.get('rootTone');
-//     var secondNote = noteTwo.get('rootTone');
-
-//     var noteDist = nn.indexOf(firstNote) - nn.indexOf(secondNote);
-//     var octDist = noteOne.get('octave') - noteTwo.get('octave');
-//     // for some reason I have to reverse the solution to be correct
-//     return (noteDist + (nn.length * octDist)) * -1;
-//   },
-
-//   intervalBetween: function (noteOne, noteTwo) {
-//     if (noteOne.get('noteId') === noteTwo.get('noteId')) return 1; // fast path for primes
-//     var dist = this.distanceBetween(noteOne, noteTwo); // solve the off by one for intervals
-//     if (dist > 0) dist += 1;
-//     if (dist < 0) dist -= 1;
-//     return dist;
-//   }
-// });
-
-
+      beses:  { octave: 0, rootName: "b", alteration: -2 },
+      bes:    { octave: 0, rootName: "b", alteration: -1 },
+      b:      { octave: 0, rootName: "b", alteration: 0 },
+      bis:    { octave: 0, rootName: "b", alteration: 1 },
+      bisis:  { octave: 0, rootName: "b", alteration: 2 },
+    }
+  }
+});
 /*globals Presto*/
 
 /**
@@ -3679,6 +3324,10 @@ Presto.NoteColumn = Presto.Column.extend({
         obj = Presto.Note.create(mix, n);
         // retrieve root note + octave, and set proper y value
         staff.setVerticalOffsetFor(obj);
+        // TODO: lilypond keeps a record of which octave the alteration took place, in order to place the right
+        // accidental only when that note previously had a different alteration. This only takes into account the
+        // key signature alteration, and doesn't take the accidentals properly into account
+        obj.staffAlteration = this.staff.alterations[obj.get('rootTone')];
         obj.update(); // have the note reset itself
         notelen = staff._calculateLength(n);
         if (notelen > this.minimumDuration) this.minimumDuration = notelen;
@@ -3695,14 +3344,32 @@ Presto.NoteColumn = Presto.Column.extend({
       }
     }, this);
     var noteObjs = this.childGrobs.filterProperty('isNote');
-    var min = noteObjs.getEach('accidental').getEach('x').get('@min');
-    noteObjs.forEach(function (n) {
-      n.x += Math.abs(min);
-    });
 
     if (notes.length > 1) {
       this.applyStacking();
     }
+
+    var min = 0;
+    noteObjs.forEach(function (n) {
+      var acc = n.get('alterations');
+      if (acc) {
+        var m = acc.getEach('x').get('@min');
+        if (m < min) min = m;
+      }
+    });
+    noteObjs.forEach(function (n) {
+      n.x += Math.abs(min);
+    });
+    //
+    //
+    //     //check for accidentals
+    // if (accidentals) { // should be always, but better double check
+    //   // use the rootTone of the note to find the current alteration in the accidentals list
+    //   // if the alteration is the same, tell the note to not display the accidental
+    //   // if it is different, check whether a natural is necessary, and set the alteration of the
+    //   // note to the alteration
+    // }
+
   },
 
   // perhaps necessary when things have been added, to reset the stacking adjustments?
@@ -3715,7 +3382,9 @@ Presto.NoteColumn = Presto.Column.extend({
    * It takes the highest, then the lowest, starting at the outer limits, and walk in, taking octaves into account
    */
   _stackAccidentals: function (chord) {
-    var sortedNotes = chord.filterProperty('accidental');
+    // needs adjusting for multiple accidentals...
+
+    var sortedNotes = chord.filterProperty('alterations');
 
     // first sort by note height, heighest note first
     // var sortedNotes = notesWithAccidentals.sort(function (n1, n2) {
@@ -3753,16 +3422,24 @@ Presto.NoteColumn = Presto.Column.extend({
 
     // in accidentalOrder we have the sorted list, where the top accidental is first
     // and any octaves are consecutive, start setting the offsets
-    var offsetIndex = 0, offset = 0, prevRootTone;
+    // what lilypond seems to do is to check the vertical distance between the
+    // notes, and when the distance is > 4, no extra indentation is made
+    //
+    // TODO: This will have to be done differently: using the width and a possible extra
+    // offset when the accidentals are too close
+    var offsetIndex = 0, offset = 0, prev;
     var staffSpace = this.score.get('size');
     accidentalOrder.forEach(function (acc) {
-      offset = offsetIndex * (staffSpace * 2.5);
-      acc.accidental.x -= offset;
-      if (acc.get('rootTone') !== prevRootTone) {
+      if (prev && acc.get('rootTone') !== prev.get('rootTone')) {
         offsetIndex += 1;
       }
+      offset = offsetIndex * (staffSpace * 2);
+      acc.alterations.forEach(function (a) {
+        a.x -= offset;
+      });
+      prev = acc;
     });
-    this.x += offset; // create the extra space required by moving the note column
+    this.x += offset / 2; // create the extra space required by moving the note column
     this._offset = offset;
   },
 
@@ -3885,68 +3562,13 @@ Presto.NoteColumn = Presto.Column.extend({
     }
   },
 
-  //   _stackSecond: function (bottomNote, topNote) {
-  //     var offset;
-
-  //     //debugger;
-  //     var topNoteWidth = topNote.get('widthOfChildGrobs');
-  //     var bottomNoteWidth = bottomNote.get('widthOfChildGrobs');
-
-  //     if (topNote.get('stemUp') && bottomNote.get('stemDown')) {
-  //       if (!bottomNote.get('isShifted') && !topNote.get('isShifted')) {
-  //         bottomNote.moveNote(topNoteWidth);
-  //         //bottomNote.move('marginLeft', topNoteWidth);
-  //         bottomNote.set('isShifted', true);
-  //         // this.move('marginRight', topNoteWidth);
-  //       }
-  //     }
-  //     else if (topNote.get('stemDown') && bottomNote.get('stemUp')) {
-  //       //top note offset to the left (keep stems) === bottom note offset to the right
-  //       if (!topNote.get('isShifted') && !bottomNote.get('isShifted')) {
-  //         bottomNote.moveNote(topNoteWidth);
-  //         //bottomNote.move('marginLeft', topNoteWidth);
-  //         bottomNote.set('isShifted', true);
-  //       }
-  //     }
-  //     else if (topNote.get('stemDown') && bottomNote.get('stemDown')) {
-  //       if (!bottomNote.get('isShifted') && !topNote.get('isShifted')) {
-  //         // topnote to the right, but buttom note loses stem
-  //         //topNote.move('marginLeft', bottomNoteWidth);
-  //         //topNote.moveNote(bottomNoteWidth);
-  //         //topNote.set('isShifted', true);
-  //         offset = bottomNote.getPath('noteShape.widthOfChildGrobs');
-  //         //topNote.shiftNote(bottomNoteWidth);
-  //         topNote.shiftNote(offset);
-  //         bottomNote.removeStem();
-  //         //if (topNote.hasAccidental) topNote.unshiftAccidentals();
-  //       }
-  //     }
-  //     else if (topNote.get('stemUp') && bottomNote.get('stemUp')) {
-  //       if (!topNote.get('isShifted') && !bottomNote.get('isShifted')) {
-  //         //topNote.moveNote(bottomNoteWidth);
-  //         //topNote.move('marginLeft', bottomNoteWidth);
-  //         //topNote.set('isShifted', true);
-  //         //offset = topNoteWidth + bottomNote.get('marginLeft');
-  //         //offset = bottomNote.get('widthOfChildGrobs') + bottomNote.get('noteHeadLeft');// + bottomNote.get('marginLeft');
-  //         //this.move('marginRight', offset / 2);
-  //         //debugger;
-  //         //bottomNote.getPath('noteShape.width');
-  //         offset = bottomNote.getPath('noteShape.widthOfChildGrobs');
-  //         topNote.shiftNote(offset);
-
-  //         topNote.removeStem();
-
-  //         //topNote.shiftNote(bottomNote.get('noteHeadLeft') + );
-  //         //debugger;
-
-  //       }
-  //     }
-  //
-  //   },
-  //
   _shiftNote: function (note, amount) {
     note.x += amount;
-    if (note.accidental) note.accidental.x -= amount;
+    if (note.alterations){
+      note.alterations.forEach(function (a) {
+        a.x -= amount;
+      });
+    } //note.accidental.x -= amount;
     note.isShifted = true;
   },
 
@@ -3993,86 +3615,6 @@ Presto.NoteColumn = Presto.Column.extend({
     }
   }
 
-//       if (firstLength > 1 && secondLength > 1) { // both have stems
-//         if (firstNote.get('stemUp') && secondNote.get('stemUp')) {
-//           if (!secondNote.get('isShifted')) {
-//             secondNote.move('marginLeft', firstNoteWidth);
-//             firstNote.set('skipWidth', true);
-//             secondNote.removeStem();
-//             secondNote.set('isShifted', true);
-//           }
-//         }
-//         else if (firstNote.get('stemDown') && secondNote.get('stemDown')) {
-//           if (!secondNote.get('isShifted')) {
-//             //secondNote.set('marginLeft', 0).set('marginRight', 0);
-//             //secondNote.move('marginLeft', -firstNoteWidth);
-//             firstNote.set('skipWidth', true);
-//             secondNote.move('marginLeft', firstNoteWidth);
-//             secondNote.removeStem();
-//             secondNote.set('isShifted', true);
-//           }
-//         }
-//         else {
-//           firstNote.set('skipWidth', true);
-//         }
-
-  //   _stackPrime: function (firstNote, secondNote) {
-  //     //var firstNote = p[0], secondNote = p[1];
-  //     var firstLength = firstNote.get('length'),
-  //         secondLength = secondNote.get('length'),
-  //         firstNoteWidth = firstNote.get('widthOfChildGrobs'),
-  //         secondNoteWidth = secondNote.get('widthOfChildGrobs');
-
-  //     if (firstLength === 1 && secondLength === 1) { // two whole notes
-  //       if (!firstNote.get('isShifted') && !secondNote.get('isShifted')) { // if none of these two is shifted, shift
-  //         firstNote.set('skipWidth', true);
-  //         secondNote.move('marginLeft', firstNoteWidth);
-  //         secondNote.set('isShifted', true);
-  //       }
-  //     }
-  //     else if (firstLength === 1 || secondLength === 1) { // if one of two is a whole note
-  //       if (firstLength === 1) { // if the first is a whole, second is offset to the right
-  //         if (!secondNote.get('isShifted')) {
-  //           firstNote.set('skipWidth', true);
-  //           secondNote.move('marginLeft', firstNoteWidth);
-  //           secondNote.set('isShifted', true);
-  //         }
-  //       }
-  //       else { // second is a whole
-  //         if (!firstNote.get('isShifted')) {
-  //           firstNote.set('skipWidth', true);
-  //           firstNote.move('marginLeft', -secondNoteWidth);
-  //           firstNote.set('isShifted', true);
-  //         }
-  //       }
-  //     }
-  //     else {
-  //       if (firstLength > 1 && secondLength > 1) { // both have stems
-  //         if (firstNote.get('stemUp') && secondNote.get('stemUp')) {
-  //           if (!secondNote.get('isShifted')) {
-  //             secondNote.move('marginLeft', firstNoteWidth);
-  //             firstNote.set('skipWidth', true);
-  //             secondNote.removeStem();
-  //             secondNote.set('isShifted', true);
-  //           }
-  //         }
-  //         else if (firstNote.get('stemDown') && secondNote.get('stemDown')) {
-  //           if (!secondNote.get('isShifted')) {
-  //             //secondNote.set('marginLeft', 0).set('marginRight', 0);
-  //             //secondNote.move('marginLeft', -firstNoteWidth);
-  //             firstNote.set('skipWidth', true);
-  //             secondNote.move('marginLeft', firstNoteWidth);
-  //             secondNote.removeStem();
-  //             secondNote.set('isShifted', true);
-  //           }
-  //         }
-  //         else {
-  //           firstNote.set('skipWidth', true);
-  //         }
-  //       }
-  //     }
-  //   }
-
 });
 
 
@@ -4089,503 +3631,6 @@ Presto.NoteColumn = Presto.Column.extend({
 */
 
 
-
-// /*globals CanvasMusic*/
-
-// /*
-// The purpose of this class is to have an abstraction for the stacking
-// which takes place within a staff, as well as allowing to synchronize
-// different staves. Every staff will make one of this objects for every
-// group of objects which belong together both optically as well as
-// musically.
-//  */
-
-// CanvasMusic.Column = CanvasMusic.Grob.extend({
-
-//   // we need some kind of automatic system for adding notes
-//   // in order to stack them properly
-//   // we also need some external interface to
-//   //
-//   parentStaff: null, // hook where to put on the parentStaff
-
-//   isColumn: true,
-
-//   //debugGrob: true,
-
-//   alignFrame: function () {
-//     // search for a note which is in "normal" position
-//     // and return the frame of that note ...
-//     // we search for the note with the leftmost position,
-//   },
-
-//   firstNoteLeft: function () {
-//     // return the marginLeft of the leftmost note we have
-//     var notes = this.get('childGrobs').filterProperty('isNote');
-//     if (notes.length === 0) return;
-//     else return notes.getEach('noteHeadLeft').get("@max");
-//   }.property(),
-
-//   addChildGrob: function () {
-//     arguments.callee.base.apply(this, arguments);
-//     // the element has already been added, we just apply rules to the stacking
-//     // of notes
-//     //
-//     // in case of a markup we need to do a trick. The width of the markup should count to the
-//     // width of the column, but should be ignored by the previousGrob technique
-
-//     //this._applyStackingRules();
-//     //debugger;
-//     this.invokeLast('_applyStackingRules');
-//   },
-
-//   widthOfChildGrobs: function () {
-//     // the width of a column is different from a normal grob, as in a normal grob
-//     // the elements are stacked horizontally, and in here vertically.
-//     // so we search for the left most element and the rightmost element
-
-//     // first search the left most element, then look for the right most element
-//     // as all the x values will be 0, the only thing we have to look for is the width of the
-//     //
-//     var maxX;
-//     //var id = SC.guidFor(this);
-//     this.childGrobs.forEach(function (cg, i) {
-//       var w;
-//       var mL = cg.get('marginLeft');
-//       if (cg.get('childGrobs')) {
-//         w = cg.get('widthOfChildGrobs');
-//       }
-//       else {
-//         w = cg.get('width');
-//       }
-//       var mR = cg.get('marginRight');
-//       var cgMaxX = mL + w + mR;
-//       if (i === 0) { // take the value
-//         maxX = cgMaxX;
-//       }
-//       else {
-//         if (cgMaxX > maxX) maxX = cgMaxX;
-//       }
-//     });
-//     return maxX;
-//   }.property(),
-
-//   // the margin left and right should be in the width
-//   // marginLeft: function () {
-//   //   // calculate the margin left, which is the left margin of the most left element
-//   //   // if x > 0 subtract the x value from marginLeft, else add it
-//   //   var leftMost, x;
-//   //   this.childGrobs.forEach(function (cg) {
-//   //     var cgX = cg.get('x');
-//   //     if (x === undefined){
-//   //       x = cgX;
-//   //       leftMost = cg;
-//   //     }
-//   //     else {
-//   //       if (cgX < x) {
-//   //         x = cgX;
-//   //         leftMost = cg;
-//   //       }
-//   //     }
-//   //   });
-//   //   return cg.get('marginLeft') + (cgX * -1);
-//   // }.property(),
-//   //
-//   // render: function () {
-//   //   this._applyStackingRules();
-//   //   arguments.callee.base.apply(this, arguments);
-//   // },
-//   //
-//   toString: function () {
-//     return "CanvasMusic.Column %@".fmt(SC.guidFor(this));
-//   },
-
-//   _applyStackingRules: function () {
-//     //debugger;
-//     var chord = this.childGrobs.filterProperty('isNote');
-//     // we call it chord, while essentially it isn't, but the same rules apply
-
-//     // what about the following process:
-//     // - figuring out which notes have accidentals
-//     // - check whether they collide (everything under an octave most likely collides)
-//     // - offset the accidentals
-//     // - then check the stacking of the notes
-//     // - compensate for any extra movement by the accidentals
-
-//     // first put everything in a straigh vertical alignment
-
-
-
-//     var notesWithAccidentals = chord.filterProperty('hasAccidental').reverse();
-//     // the rules are:
-//     // - top accidental should be nearest
-//     // - octave related accidentals should be vertically aligned (this does not work yet)
-//     var offset = 0;
-//     notesWithAccidentals.forEach(function (n) {
-//       // for now add the width of the accidental to the leftmargin of the note shape
-//       var nhl = n.get('noteHeadLeft');
-//       n._previousNoteHeadLeft = nhl;
-//       n.moveNote(offset);
-//       offset += nhl;
-//     });
-
-//     var max = chord.getEach('noteHeadLeft').get('@max');
-//     chord.forEach(function (n) {
-//       var nhl = n.get('noteHeadLeft');
-//       if (nhl < max) {
-//         var diff = max - nhl;
-//         n.moveNote(diff);
-//       }
-//     });
-
-//     // now everything is offset at the max distance, so the note heads are in the right position
-//     // and all accidentals are at the max left now we need to run through all the accidentals again to arrange the
-//     // accidentals
-//     // the procedures above have set the marginLeft of the note shape, we have to reduce it to 0 again for the
-//     // first accidental, then from there
-//     offset = 0;
-//     notesWithAccidentals.forEach(function (n) {
-//       // the first offset is "normal", then we start increasing the offset
-//       var nhl = n._previousNoteHeadLeft + offset;
-//       var noteShape = n.get('noteShape');
-//       var curNhl = n.get('noteHeadLeft');
-//       //var curNhl = noteShape.get('marginLeft');
-//       //
-//       // we need to take the margins into account, which we seem to have subtracted here
-//       var diff = nhl - curNhl + 4; // create the negative, so the value will correct
-//       //console.log("n._previousNoteHeadLeft: %@, offset: %@, curNhl: %@, nhl: %@, diff: %@".fmt(n._previousNoteHeadLeft, offset, curNhl, nhl, diff));
-//       n.moveNote(diff);
-//       //console.log("new noteHeadLeft: %@".fmt(n.get('noteHeadLeft')));
-//       // now we need to also add the remainder of the offset to the note itself
-//       n.move('marginLeft', diff * -1);
-//       offset += n._previousNoteHeadLeft;
-//     });
-
-//     //stacking
-//     chord.forEach(function (n, i) {
-//       var nextNote = chord.objectAt(i+1);
-//       n.set('skipWidth', true); // column, so don't count the width
-//       var interval;
-//       if (nextNote) {
-//         nextNote.set('skipWidth', true);
-//         interval = CanvasMusic.Note.intervalBetween(n, nextNote);
-//         if (interval === 2 || interval === -2) {
-//           this._stackSecond(n, nextNote);
-//         }
-//         else if (interval === 1) {
-//           this._stackPrime(n, nextNote);
-//         }
-//         else {
-//           if (n.get('stemDown')) {
-//             n.set('skipWidth', true);
-//             //nextNote.move('marginLeft', 1);
-//           }
-//           else {
-//             n.set('skipWidth', true);
-//             n.move('marginLeft', n.get('marginLeft'));
-//           }
-//         }
-//       }
-//     }, this);
-
-//     // notesWithAccidentals.forEach(function (n) {
-//     //   // ...
-//     //   //
-//     // }, this);
-
-//     // fixing movement of accidentals...
-//     // if (topNote.hasAccidental) { // in this case the accidental needs to be in front of the bottom note
-
-//     //   //topNote.moveNote(bottomNoteWidth);
-//     //   // we do want to move the note, but it should be possible to shift it afterwards
-//     //   bottomNote.moveNote(topNote.get('noteHeadLeft')); // offset bottom note to match top note head
-//     //   // we should take the width of the stem into account
-//     //   topNote.shiftNote(bottomNoteWidth - bottomNote.get('marginRight') + this.getPath('parentStaff.size') / 6);
-//     //   topNote.unshiftAccidentals();
-//     //   this.move('marginLeft', bottomNoteWidth / 2);
-//     // }
-//     // else {
-//     //   topNote.shiftNote(bottomNoteWidth);
-//     //   this.move('marginRight', topNoteWidth / 2);
-//     // }
-
-
-//     //
-//     //
-//     //
-//     //
-//     //
-//     //
-//     //
-//     // var numNotes = chord.length;
-//     // if (numNotes < 2) return; // we don't need to do anything for anything less than 2 notes simultaneous
-
-//     // //var pS = this.get('parentStaff');
-//     // //var cm = this.get('cm');
-//     // var interval, curNote, nextNote;
-//     // var primes = [];
-//     // var seconds = [];
-
-//     // for (var i = 0; i < numNotes; i += 1) {
-//     //   curNote = chord[i];
-//     //   nextNote = chord[i + 1];
-//     //   if (nextNote) { // don't take the last item, we are interested in intervals
-//     //     interval = CanvasMusic.Note.intervalBetween(curNote, nextNote);
-//     //     if (interval === 2 || interval === -2) {
-//     //       // immediately get bottom note first
-//     //       if (interval === -2) seconds.push([nextNote, curNote]);
-//     //       else seconds.push([curNote, nextNote]); // yes should be an array
-//     //     }
-//     //     else if (interval === 1) {
-//     //       primes.push([curNote, nextNote]);
-//     //     }
-//     //     else { // for all other stacking, only one note should count, so we set skipWidth on everything but the first
-//     //       // check the stem direction
-//     //       if (curNote.get('stemDown')) {
-//     //         curNote.set('skipWidth', true);
-//     //         nextNote.move('marginLeft', 1);
-//     //       }
-//     //       else {
-//     //         curNote.set('skipWidth', true);
-//     //         curNote.move('marginLeft', curNote.get('marginLeft'));
-//     //       }
-
-//     //     }
-//     //   }
-//     // }
-
-//     // the rules are:
-//     // - for seconds:
-//     //   - when both notes are notes with a stem (anything length > 1)
-//     //     - when the top note has the stem up and the bottom one the stem down => bottom note offset to the right (keep stems)
-//     //     - when the top note has the stem down and the bottom one the stem up => top note offset to the left (keep stems)
-//     //     (this is perhaps the original, the implementation flips it around because of spacing issues)
-//     //     - when both notes have the stem down => bottom note offset to the left and loses stem, unless it is already offset
-//     //     - when both notes have the stem up => top note offset to the right and loses stem, unless it is already offset
-//     //   - when both notes are notes without a stem (length === 1)
-//     //     - when only two notes are present => bottom note goes left, unless it is already offset
-//     //     - when more than two notes are present => the middle one goes left, unless it is already offset
-//     //   - when one of the notes is a note without a stem => the top note is offset to the left (regardless of stem)
-//     // - for primes:
-//     //   - when both notes are notes with a stem (anything length > 1)
-//     //     - when both notes have opposite stems => no offset
-//     //     - when both notes have the stem up => one of them is offset to the right, and loses stem
-//     //     - when both notes have the stem down => one of them is offset to the left and loses stem
-//     //   - when both notes are notes without a stem (length === 1)
-//     //     - first note goes left unless it is already offset (max two, Lilypond also only prints two, even with three voices!)
-//     //   - when one of the note has a stem (length > 1), it depends on the voice the note is in, but as there is no
-//     //     Voice context in this implementation (yet), we cannot really know. The note with stem has Voice 1, goes left, rest goes right
-//     //     so, what we do here, is assume that the first note in a chord in that sense will be voice 1.
-//     //
-//     //  In these rules is not taken care of the fact that we can have accidentals.
-//     //  In case of accidentals the accidental needs to be put in front of the entire stack, and the entire stack
-//     //  needs to be shifted an certain amount of space to make room for the accidental
-//     //  When an accidental is on one of the shifted notes, the accidental needs to be moved (marginRight)
-//     //  in order to be in front of the stack
-//     //
-//     //  In some cases the accidentals could overlap, so we also need to detect that somehow.
-//     //
-//     //  For some reasons I am doing something fundamentally wrong here...
-//     // perhaps one of the reasons is that the code for the primes and seconds was written for a continuous addition
-//     // but this is no longer necessary now, as the runloop of SC takes care that this procedure is ran only once after
-//     // its creation.
-
-//     // most likely it is easier to apply the rules in one go...
-
-
-
-
-//     // this._stackSeconds(seconds);
-//     // this._stackPrimes(primes);
-//     // // after stacking has taken place, we need to check whether all notes are properly aligned
-//     // // we look for the right most notehead, which is not shifted
-//     // var notes = this.childGrobs.filterProperty('isNote');
-//     // var shiftedNotes = notes.filterProperty('isShifted', true);
-//     // var unshiftedNotes = notes.filter(function (cg) {
-//     //   return shiftedNotes.indexOf(cg) === -1;
-//     // });
-
-//     // var maxUnshifted = unshiftedNotes.getEach('noteHeadLeft').get('@max');
-//     // var maxShifted = shiftedNotes.getEach('noteHeadLeft').get('@max'); // offset for stem
-
-//     // var stemOffset = this.getPath('parentStaff.size') / 6;
-//     // notes.forEach(function (n) {
-//     //   var nhl = n.get('noteHeadLeft');
-//     //   var max = n.isShifted ? maxShifted: maxUnshifted;
-//     //   var diff;
-
-//     //   //topNote.shiftNote(bottomNoteWidth - bottomNote.get('marginRight') + this.getPath('parentStaff.size') / 6);
-//     //   if (nhl < max) {
-//     //     diff = max - nhl;
-//     //     // not entirely sure why I need to add the stemOffset twice here...
-//     //     if (n.isShifted) diff += stemOffset * 2; // only add if we actually need to move it...
-//     //     n.moveNote(diff);
-//     //   }
-
-//     //   // if (n.hasAccidental && n.isShifted) {
-//     //   //   n.unshiftAccidentals();
-//     //   // }
-//     // });
-
-
-//     // (function (cg) {
-//     //   return cg.isNote && !cg.isShifted;
-//     // });
-//     // var shiftedNotes = this.childGrobs.filter(function (cg))
-
-//     // var max = notes.getEach('noteHeadLeft').get('@max');
-//     // //debugger;
-//     // this.childGrobs.filterProperty('isNote').forEach(function (cg) {
-//     //   var nhl = cg.get('noteHeadLeft'), diff;
-//     //   if (nhl < max) {
-//     //     diff = max - nhl;
-//     //     cg.moveNote(diff);
-//     //   }
-//     //   else {
-
-//     //   }
-//     // });
-//     // // notes.forEach(function (n) {
-//     // //   var nhl = n.get('noteHeadLeft');
-//     // //   if (nhl < max) {
-//     // //     var diff = max - nhl;
-//     // //     n.moveNote(diff);
-//     // //     //n.isMoved = true;
-//     // //   }
-//     // // });
-
-//   },
-
-//   _stackSecond: function (bottomNote, topNote) {
-//     var offset;
-
-//     if (topNote._automaticStem || bottomNote._automaticStem) {
-//       if (topNote.get('stemDown') && bottomNote.get('stemUp')) {
-//         // fix the topNote to agree with bottomNote
-//         // interesting to see how the rules in lilypond are.. we here adhere to the lowest note essentially
-//         //topNote.set('stemUp', true).set('stemDown', false).set('_automaticStem', false);
-//         topNote.flipStem().set('_automaticStem', false);
-//       }
-//     }
-
-//     // whenever we have to stack, we should ignore the width of the previous element
-//     // as it would otherwise be added to the topNotes x position when calculating the frame
-//     // The previous grob in this case is the bottom note because of the sorting
-//     bottomNote.set('skipWidth', true);
-//     topNote.set('skipWidth', true);
-
-
-//     //debugger;
-//     var topNoteWidth = topNote.get('widthOfChildGrobs');
-//     var bottomNoteWidth = bottomNote.get('widthOfChildGrobs');
-
-//     if (topNote.get('stemUp') && bottomNote.get('stemDown')) {
-//       if (!bottomNote.get('isShifted') && !topNote.get('isShifted')) {
-//         bottomNote.moveNote(topNoteWidth);
-//         //bottomNote.move('marginLeft', topNoteWidth);
-//         bottomNote.set('isShifted', true);
-//         // this.move('marginRight', topNoteWidth);
-//       }
-//     }
-//     else if (topNote.get('stemDown') && bottomNote.get('stemUp')) {
-//       //top note offset to the left (keep stems) === bottom note offset to the right
-//       if (!topNote.get('isShifted') && !bottomNote.get('isShifted')) {
-//         bottomNote.moveNote(topNoteWidth);
-//         //bottomNote.move('marginLeft', topNoteWidth);
-//         bottomNote.set('isShifted', true);
-//       }
-//     }
-//     else if (topNote.get('stemDown') && bottomNote.get('stemDown')) {
-//       if (!bottomNote.get('isShifted') && !topNote.get('isShifted')) {
-//         // topnote to the right, but buttom note loses stem
-//         //topNote.move('marginLeft', bottomNoteWidth);
-//         //topNote.moveNote(bottomNoteWidth);
-//         //topNote.set('isShifted', true);
-//         offset = bottomNote.getPath('noteShape.widthOfChildGrobs');
-//         //topNote.shiftNote(bottomNoteWidth);
-//         topNote.shiftNote(offset);
-//         bottomNote.removeStem();
-//         //if (topNote.hasAccidental) topNote.unshiftAccidentals();
-//       }
-//     }
-//     else if (topNote.get('stemUp') && bottomNote.get('stemUp')) {
-//       if (!topNote.get('isShifted') && !bottomNote.get('isShifted')) {
-//         //topNote.moveNote(bottomNoteWidth);
-//         //topNote.move('marginLeft', bottomNoteWidth);
-//         //topNote.set('isShifted', true);
-//         //offset = topNoteWidth + bottomNote.get('marginLeft');
-//         //offset = bottomNote.get('widthOfChildGrobs') + bottomNote.get('noteHeadLeft');// + bottomNote.get('marginLeft');
-//         //this.move('marginRight', offset / 2);
-//         //debugger;
-//         //bottomNote.getPath('noteShape.width');
-//         offset = bottomNote.getPath('noteShape.widthOfChildGrobs');
-//         topNote.shiftNote(offset);
-
-//         topNote.removeStem();
-
-//         //topNote.shiftNote(bottomNote.get('noteHeadLeft') + );
-//         //debugger;
-
-//       }
-//     }
-//   },
-
-//   _stackPrime: function (firstNote, secondNote) {
-//     //var firstNote = p[0], secondNote = p[1];
-//     var firstLength = firstNote.get('length'),
-//         secondLength = secondNote.get('length'),
-//         firstNoteWidth = firstNote.get('widthOfChildGrobs'),
-//         secondNoteWidth = secondNote.get('widthOfChildGrobs');
-
-//     if (firstLength === 1 && secondLength === 1) { // two whole notes
-//       if (!firstNote.get('isShifted') && !secondNote.get('isShifted')) { // if none of these two is shifted, shift
-//         firstNote.set('skipWidth', true);
-//         secondNote.move('marginLeft', firstNoteWidth);
-//         secondNote.set('isShifted', true);
-//       }
-//     }
-//     else if (firstLength === 1 || secondLength === 1) { // if one of two is a whole note
-//       if (firstLength === 1) { // if the first is a whole, second is offset to the right
-//         if (!secondNote.get('isShifted')) {
-//           firstNote.set('skipWidth', true);
-//           secondNote.move('marginLeft', firstNoteWidth);
-//           secondNote.set('isShifted', true);
-//         }
-//       }
-//       else { // second is a whole
-//         if (!firstNote.get('isShifted')) {
-//           firstNote.set('skipWidth', true);
-//           firstNote.move('marginLeft', -secondNoteWidth);
-//           firstNote.set('isShifted', true);
-//         }
-//       }
-//     }
-//     else {
-//       if (firstLength > 1 && secondLength > 1) { // both have stems
-//         if (firstNote.get('stemUp') && secondNote.get('stemUp')) {
-//           if (!secondNote.get('isShifted')) {
-//             secondNote.move('marginLeft', firstNoteWidth);
-//             firstNote.set('skipWidth', true);
-//             secondNote.removeStem();
-//             secondNote.set('isShifted', true);
-//           }
-//         }
-//         else if (firstNote.get('stemDown') && secondNote.get('stemDown')) {
-//           if (!secondNote.get('isShifted')) {
-//             //secondNote.set('marginLeft', 0).set('marginRight', 0);
-//             //secondNote.move('marginLeft', -firstNoteWidth);
-//             firstNote.set('skipWidth', true);
-//             secondNote.move('marginLeft', firstNoteWidth);
-//             secondNote.removeStem();
-//             secondNote.set('isShifted', true);
-//           }
-//         }
-//         else {
-//           firstNote.set('skipWidth', true);
-//         }
-//       }
-//     }
-//   }
-// });
 /*globals Presto, console */
 Presto.Staff = Presto.Grob.extend({
   /**
@@ -4643,6 +3688,7 @@ Presto.Staff = Presto.Grob.extend({
     this._currentX = 0;
     this.addStaffLines();
     this.addClef();
+    this.addKeySignature();
     this.addTimeSignature();
     this.setTopAndBottomOffsets();
   },
@@ -4688,7 +3734,7 @@ Presto.Staff = Presto.Grob.extend({
 
 
     this.addChildGrob(symbol);
-    this._currentX += symbol.get('width') + 4*staffSpace;
+    this._currentX += symbol.get('width') + 2*staffSpace;
   },
 
   /**
@@ -4733,6 +3779,26 @@ Presto.Staff = Presto.Grob.extend({
     return cache[pos];
   },
 
+  /**
+   * used by the key signature and setVerticalOffsetFor to figure out at what position a specific note
+   * name should be put
+   * @param  {String|Presto.Note} notename or note instance
+   * @param {Number} octave optional: octave, when not called with a note instance
+   * @return {Number}          Position in staff
+   */
+  calculateVerticalPositionFor: function (notename, octave) {
+    var note;
+    if (typeof notename === "string") {
+      note = Presto.Note.create({ isPlaceholder: true, name: notename, octave: octave, length: 4 });
+    }
+    else note = notename;
+    var cnote = this.get('clefNote');
+    var cpos = this.get('clefPosition');
+    var dist = Presto.Note.distanceBetween(note, cnote);
+    var notePos = cpos + dist;
+    return notePos;
+  },
+
   _verticalOffsetCache: null,
 
   /**
@@ -4742,10 +3808,7 @@ Presto.Staff = Presto.Grob.extend({
    * @return {Presto.Note}      The adjusted note
    */
   setVerticalOffsetFor: function (note) {
-    var cnote = this.get('clefNote');
-    var cpos = this.get('clefPosition');
-    var dist = Presto.Note.distanceBetween(note, cnote);
-    var notePos = cpos + dist;
+    var notePos = this.calculateVerticalPositionFor(note);
     // from the notePos we can calculate the helperlines. We are going to do this very naively, by assuming
     // there will always be 5 lines, and the lines are at -4, -2, 0, 2, and 4
     note.y = this.calculateVerticalOffsetFor(notePos);
@@ -4785,8 +3848,8 @@ Presto.Staff = Presto.Grob.extend({
    * Set the default maximum top and bottom offsets, as calculated by two spots above the staff and two below
    */
   setTopAndBottomOffsets: function () {
-    this.maximumBottomOffset = this.calculateVerticalOffsetFor(6);
-    this.maximumTopOffset = this.calculateVerticalOffsetFor(-6);
+    this.maximumBottomOffset = this.calculateVerticalOffsetFor(8);
+    this.maximumTopOffset = this.calculateVerticalOffsetFor(-8);
   },
 
   /**
@@ -4827,9 +3890,12 @@ Presto.Staff = Presto.Grob.extend({
     return this.get('timeSignature').beatType;
   },
 
-  //   keySignature: function () {
-  //     return CanvasMusic.Staff.clefs[this.get('clef')].keySignatures[this.get('key')];
-  //   }.property('key').cacheable(),
+  /**
+   * addKeySignature will put up here the current keySignature, which is an array of
+   * note names. This is being used by setVerticalOffsetFor to add required naturals or accidentals
+   * @type {Array}
+   */
+  keySignature: null,
 
   /**
    * add the current time signature, numbers only for the moment
@@ -4847,6 +3913,91 @@ Presto.Staff = Presto.Grob.extend({
     this._currentX += c.get('width') + (4*staffSpace);
     return this;
   },
+
+  /**
+   * function to add the current key signature
+   * there is no key cancellation yet
+   */
+  addKeySignature: function () {
+    var staffSpace = this.score.get('size');
+    var key = this.get('key');
+    var baseNote, keySig;
+    if (key) {
+      key = key.trim().split(" ");
+      baseNote = key[0];
+      if (key.indexOf("minor") > -1) { // not supported yet
+        keySig = Presto.Staff.clefs[this.get('clef')].keySignatures[baseNote];
+      }
+      else {
+        keySig = Presto.Staff.clefs[this.get('clef')].keySignatures[baseNote];
+      }
+      keySig.forEach(function (k) {
+        var name = k.slice(0, k.length - 1);
+        var oct = parseInt(k.slice(k.length - 1), 10);
+        // look up the alteration
+        var noteDef = Presto.Note.noteNames.nl[name];
+        var alt = noteDef.alteration;
+        var pos = this.calculateVerticalPositionFor(name, oct);
+        var accname;
+        if (alt === 1) accname = "accidentals.sharp";
+        else if (alt === -1) accname = "accidentals.flat";
+        var symbol = Presto.Symbol.create({
+          name: accname,
+          score: this.score,
+          staff: this,
+          x: this._currentX,
+          y: this.calculateVerticalOffsetFor(pos) + 2 // unclear why exactly the offset is 2 pixels off
+        });
+        this.addChildGrob(symbol);
+        this._currentX += symbol.get('width');
+      }, this);
+      this.keySignature = keySig;
+    }
+    else {
+      this.keySignature = Presto.Staff.clefs[this.get('clef')].keySignatures.c;
+    }
+    // always add a bit of space
+    this._currentX += staffSpace * 2;
+    this.resetAlterations(); // set the list with current accidentals
+  },
+
+  /**
+   * This function resets the list with accidentals. This list is required in order to know which
+   * notes are going to have accidentals or on which the accidental has to be omitted as they are
+   * already part of the key signature. This function is run at the start of every bar as well
+   * as when the key signature is added / set (alteration is a better term :) )
+   */
+  resetAlterations: function () {
+    var names = Presto.Note.noteNames.nl.rootNotes;
+    var keySig = this.get('keySignature');
+    var l = {};
+    names.forEach( function (rootName) {
+      var acc;
+      keySig.forEach(function (a) {
+        if (a[0] === rootName) {
+          acc = a;
+        }
+      });
+      if (acc) {
+        var n = Presto.Note.create({ isPlaceholder: true, name: acc.slice(0, acc.length - 1) });
+        l[rootName] = n.get('alteration');
+      }
+      else {
+        l[rootName] = 0;
+      }
+    });
+    this.alterations = l;
+  },
+
+  /**
+   * The list of current accidentals. It is set by resetAccidentals when a key signature is added as well
+   * as at the start of a bar. The list is a hash with the root tones as keys and a number to indicate
+   * the offset, where +0.5 is a single sharp, and -0.5 is a single flat.
+   * This hash can be adjusted by a note column to indicate that a certain accidental has taken place, which
+   * prevents other notes in the same bar to get accidentals
+   * @type {Hash}
+   */
+  alterations: null,
 
   /**
    * private variable in which is kept the x value of the next element to be added
@@ -5088,82 +4239,7 @@ Presto.Staff = Presto.Grob.extend({
     // add
     this._currentCursorAt += 1;
     return ret;
-  },
-
-  //   // parseEvent: parses an event, returns a grob with all elements parsed
-  //   parseEvent: function (event) {
-  //     if (!event) return; // undefined when no event, so skip.
-  //     var ret = CanvasMusic.Column.create({ cm: this.get('cm'), parentStaff: this, parentGrob: this });
-  //     var adder = function (p) {
-  //       if (SC.typeOf(p) === SC.T_ARRAY) p.forEach(ret.addChildGrob, ret);
-  //       else ret.addChildGrob(p);
-  //     };
-
-  //     if (SC.typeOf(event) === SC.T_ARRAY) { // we have a block with multiple events
-  //       event.map(function (e) {
-  //         return this.parseHash(e, ret);
-  //       }, this).forEach(adder, ret);
-  //     }
-  //     else if (SC.typeOf(event) === SC.T_HASH) {
-  //       adder(this.parseHash(event, ret));
-  //     }
-  //     else {
-  //       throw new Error("CanvasMusic.Staff#parseEvent: invalid event type found: " + SC.inspect(event));
-  //     }
-  //     return ret;
-  //   },
-
-
-  //   parseHash: function (hash, column) {
-  //     if (!hash) return; // don't parse anything invalid
-  //     var name = hash.name;
-  //     var staffBottomPosition = this.topOfStaffLineFor(1);
-  //     var staffTopPosition = this.topOfStaffLineFor(this.get('numberOfLines'));
-
-  //     if (!name) {
-  //       console.log(this._notationCache);
-  //       throw new Error("something fishy....");
-  //     }
-  //     var ret;
-  //     var mix = {
-  //       parentGrob: column,
-  //       parentStaff: this,
-  //       cm: this.get('cm'),
-  //     };
-  //     if (CanvasMusic.Barline.isBarline(name)) {
-  //       ret = CanvasMusic.Barline.create(mix, {
-  //         type: name,
-  //         y: staffTopPosition,
-  //         height: staffBottomPosition
-  //       });
-  //     }
-  //     else if (name === "rest") { // hardcoded for now
-  //       ret = CanvasMusic.Rest.create(mix, hash);
-  //     }
-  //     else { // assume a note for now
-  //       ret = CanvasMusic.Note.create(mix, hash);
-  //     }
-  //     if (hash.markup) {
-  //       ret = [ret]; // make it into an array
-  //       var markupHash = {
-  //         y: hash.markupDown ? staffBottomPosition: staffTopPosition,
-  //         markup: hash.markup
-  //       };
-  //       if (hash.markupDown !== undefined) markupHash.markupDown = hash.markupDown;
-  //       if (hash.markupAlign !== undefined) markupHash.markupAlign = hash.markupAlign;
-  //       // the skipWidth functionality on markups sadly doesn't work correctly
-  //       // so disabled for now. It needs looking up the previous column in order to detect
-  //       // a markup collision
-  //       //if (hash.markupSkipWidth !== undefined) markupHash.skipWidth = hash.markupSkipWidth;
-  //       ret.push(CanvasMusic.Markup.create(mix, markupHash));
-  //     }
-  //     return ret;
-  //   },
-
-
-
-
-
+  }
 
 });
 
@@ -5180,7 +4256,6 @@ Presto.mixin(Presto.Staff, {
         isPlaceholder: true
       }),
       clefPosition: 2, // one line under central line
-      //clefLine: 2,
       clefName: "clefs.G",
       keySignatures: {
         ces: ['bes1', 'es2', 'as1', 'des2', 'ges1', 'ces2', 'fes1'],
@@ -5231,527 +4306,6 @@ Presto.mixin(Presto.Staff, {
 });
 
 
-// /*globals CanvasMusic, console*/
-
-// // idea: what if we do the layout objects that are part of the staff relative to the
-// // staff positions? That would make it easier to dynamically adjust the staffs vertical position
-// // without having to recalculate all vertical positions of all elements...
-// // the horizontal calculation can still be absolute...
-// //
-// // The idea is interesting, because it goes completely down to the Grob level.
-// // Meaning: a grob can have childGrobs. If the
-
-// CanvasMusic.Staff = CanvasMusic.Grob.extend({
-
-//   // a staff will always need to be left aligned
-//   horizontalAlign: SC.ALIGN_LEFT,
-
-//   key: "c", // by default no accidentals at the clef (not implemented yet)
-
-//   time: "4/4", // by default 4/4 (not implemented yet)
-
-//   clef: "treble", // by default a treble clef (this should not be used, because of mixins... left in for now)
-
-//   hideClef: false, // set to true to remove the clef (no space reserved)
-
-//   clefIsTransparent: false, // set to true to remove the clef (space reserved),
-
-//   parent: null, // what object is the parent? (DEPRECATE?)
-
-//   cm: null, // parent instance of CanvasMusic
-
-//   hasBarLine: false, // should we draw the barline ourselves?
-
-//   numberOfLines: 5, // default number of lines in the staff
-
-//   staffLineThickness: 1, // default setting for thickness of staff lines
-
-//   notes: null, // array where the notes / barlines to create should be put
-
-//   // default value of the cursorSize. the cursor size is the smallest note value
-//   // by which the notation cursor will progress. see score.js
-//   cursorSize: function () {
-//     return this.getPath('parentGrob.cursorSize');
-//   }.property().cacheable(),
-
-//   automaticBarLines: false, // yes we can do automatic barlines, because of the sync
-
-//   // by default: take over the settings from Score (the parent)
-//   size: function () {
-//     return this.getPath('parentGrob.size');
-//   }.property('parentScore').cacheable(),
-
-//   fontSize: function () {
-//     return this.getPath('parentGrob.fontSize');
-//   }.property('parentScore').cacheable(),
-
-//   skipWidth: true, // vital, otherwise staffs are not drawn in parallel
-
-//   init: function () {
-//     arguments.callee.base.apply(this, arguments);
-//     // figure out a way to check the validity of this.cursorSize
-//     // it needs to be a power of 2.
-//     // set up the staff lines
-//     this.createStaffLines();
-//     this.createClef();
-//     this.createKeySignature();
-//     this.createTimeSignature();
-//     this._generateNotationCache();
-//   },
-
-//   clefNote: function () {
-//     return CanvasMusic.Staff.clefs[this.get('clef')].clefNote;
-//   }.property('clef'),
-
-//   clefLine: function () {
-//     return CanvasMusic.Staff.clefs[this.get('clef')].clefLine;
-//   }.property('clef'),
-
-//   clefName: function () {
-//     return CanvasMusic.Staff.clefs[this.get('clef')].clefName;
-//   }.property('clef'),
-
-//   timeSignature: function () {
-//     var validBeatTypes = [1, 2, 4, 8, 16];
-//     var time = this.get('time');
-//     if (!time || (time.indexOf("/") === -1)) {
-//       throw new Error("CanvasMusic.Staff: Invalid time signature");
-//     }
-//     var sign = time.split("/");
-//     var numBeats = parseInt(sign[0], 10);
-//     var beatType = parseInt(sign[1], 10);
-//     if (validBeatTypes.indexOf(beatType) === -1) {
-//       throw new Error("CanvasMusic.Staff: Invalid beat type: " + beatType);
-//     }
-//     return {
-//       numberOfBeats: numBeats,
-//       beatType: beatType
-//     };
-//   }.property('time').cacheable(),
-
-//   numberOfBeatsPerBar: function () {
-//     return this.get('timeSignature').numberOfBeats;
-//   }.property('time').cacheable(),
-
-//   beatType: function () {
-//     return this.get('timeSignature').beatType;
-//   }.property('time').cacheable(),
-
-//   keySignature: function () {
-//     return CanvasMusic.Staff.clefs[this.get('clef')].keySignatures[this.get('key')];
-//   }.property('key').cacheable(),
-
-//   createStaffLines: function () {
-//     // staff lines are drawn based on the fontSize and size
-//     // we start at top : 0 and take width for now as the width of the staff...
-//     var y = 0;
-//     var lineThickness = this.get('staffLineThickness');
-//     var numLines = this.get('numberOfLines');
-//     var lineIndex = numLines;
-//     var size = this.get('size');
-//     for(var i = 0; i < numLines; i += 1) {
-//       this.addChildGrob(CanvasMusic.Line.create({
-//         y: y,
-//         x: 0,
-//         lineWidth: lineThickness,
-//         width: this.get('width'),
-//         skipWidth: true,
-//         height: lineThickness,
-//         isStaffLine: true, // add a flag, so we can easily find it later
-//         lineIndex: lineIndex // top line is heighest number, ending with 1 for the bottom line
-//       }));
-//       y += size - lineThickness; // only take the distance itself, and correct for the line thickness
-//       lineIndex -= 1;
-//     }
-//     //this.set('bottom', y);
-//   },
-
-//   createClef: function () {
-//     var clefName = this.get('clefName');
-//     var mix = {
-//       cm: this.get('cm'),
-//       parentStaff: this
-//     };
-//     var c = CanvasMusic.Column.create(mix, {
-//       parentGrob: this,
-//       marginLeft: this.getPath('cm.size') * 0.5,
-//       marginRight: this.getPath('cm.size') * 0.5,
-//     });
-//     c.addChildGrob(CanvasMusic.Symbol.create({
-//       cm: this.get('cm'),
-//       parentStaff: this,
-//       parentGrob: c,
-//       name: clefName,
-//       y: this.topOfStaffLineFor(this.get('clefLine'))
-//     }));
-//     this.addChildGrob(c);
-//   },
-
-//   createTimeSignature: function () {
-//     //var ts = this.get('timeSignature');
-//     var mix = { cm: this.get('cm'), parentStaff: this };
-//     var c = CanvasMusic.Column.create(mix, {
-//       parentGrob: this,
-//       //marginLeft: this.getPath('cm.size') * 0.25,
-//       marginRight: this.getPath('cm.size') * 0.5
-//     });
-//     var top = CanvasMusic.Symbol.create(mix, {
-//       name: this.get('numberOfBeatsPerBar').toString(),
-//       y: this.topOfStaffLineFor(3),
-//       parentGrob: c,
-//       skipWidth: true
-//     });
-//     var bottom = CanvasMusic.Symbol.create(mix, {
-//       name: this.get('beatType').toString(),
-//       y: this.topOfStaffLineFor(1),
-//       parentGrob: c,
-//       //skipWidth: true
-//     });
-//     c.addChildGrob(top);
-//     c.addChildGrob(bottom);
-//     this.addChildGrob(c);
-//   },
-
-//   createKeySignature: function () {
-//     var ks = this.get('keySignature');
-//     var c = CanvasMusic.Grob.create({
-//       isKeySignature: true,
-//       cm: this.get('cm'),
-//       parentGrob: this,
-//       parentStaff: this,
-//       marginRight: 10
-//     });
-//     // ks is an array with all note names where we have to put a
-//     ks.forEach(function (k) {
-//       // let's make a noteGrob and remove the noteshape grob
-//       var l = k.length;
-//       var o = k.indexOf("-");
-//       var name, octave;
-//       if (o > -1) {
-//         name = k.substr(0, o);
-//         octave = parseInt(k.substr(o), 10);
-//       }
-//       else {
-//         name = k.substr(0, l - 1);
-//         octave = parseInt(k.substr(l - 1), 10);
-//       }
-
-//       var n = CanvasMusic.Note.create({
-//         name: name,
-//         octave: octave,
-//         length: 4,
-//         parentStaff: this,
-//         parentGrob: this,
-//         cm: this.get('cm')
-//       });
-//       var a = n.childGrobs.findProperty('isAccidental').set('parentGrob', c).set('marginLeft', 0).set('marginRight', 0);
-//       c.addChildGrob(a);
-//       n.destroy();
-//     }, this);
-//     this.addChildGrob(c);
-//   },
-
-//   topOfStaffLineFor: function (staffLineNumber) {
-//     var staffLine = this.childGrobs.findProperty('lineIndex', staffLineNumber);
-//     if (staffLine) return staffLine.y;
-//     else throw new Error("CanvasMusic.Staff#topOfStaffLineFor: unknown staffLineNumber: " + staffLineNumber);
-//   },
-
-//   _noteIndexes: null,
-
-//   // to calculate the index for the middle note
-//   middleNoteIndex: function () {
-//     var numStaffLines = this.get('numberOfLines');
-//     var clefLine = this.get('clefLine');
-//     // we need the middle of the staff lines, which is 3 for 5 lines, 2.5 for 4 lines (between line 2 and 3)
-//     // so...
-//     var diffWithMiddleStaff = (((numStaffLines + 1) / 2) - clefLine) * 2;
-//     return diffWithMiddleStaff;
-//   }.property('clef'),
-
-//   indexFor: function (note) {
-//     var clefNote = this.get('clefNote');
-//     return CanvasMusic.Note.distanceBetween(clefNote, note);
-//   },
-
-//   numberOfHelperLinesFor: function (note) {
-//     // calculate how many helper lines we are going to need
-//     // returns -1 for one line under the staff, 1 for one line above the staff
-//     var absPos =  this.absoluteStaffPositionFor(note);
-//     var staffTop = this.get('staffTopPosition');
-//     var staffBottom = this.get('staffBottomPosition');
-//     var diff;
-//     if (absPos >= staffBottom && absPos <= staffTop) {
-//       return 0;
-//     }
-//     else if (absPos > staffTop) {
-//       diff = absPos - staffTop;
-//     }
-//     else diff = absPos - 1;
-
-//     return Math.trunc(diff/2);
-//   },
-
-//   // returns the absolute position in the staff vertically
-//   // index 0 is the lowest note under the first line
-//   absoluteStaffPositionFor: function (note) {
-//     var noteIndex = this.indexFor(note);
-//     //noteIndex is calculated from the clef line
-//     return noteIndex + (this.get('clefLine') * 2) - 1;
-//   },
-
-//   staffTopPosition: function () {
-//     // first line is 1, second is 3, third is 5, fourth is 7, fifth is 9
-//     return (this.get('numberOfLines') * 2) - 1;
-//   }.property('numberOfLines'),
-
-//   staffBottomPosition: 0,
-
-//   // calculates the y position in the current staff
-//   // was getNoteTop in the original plain JS implementation
-//   // what it does is take the top value of the clef line,
-//   // computes the difference in steps between the clef note and the current one
-//   // adds it to the startTop, and corrects for the lineWidth
-//   verticalOffsetFor: function (note) {
-//     // we have to invert because index is higher with higher notes, but top works the other way around
-
-//     var noteIndex = this.indexFor(note) * -1;
-//     var vDistance = this.get('size') / 2;
-//     var clefLine = this.get('clefLine');
-//     var startTop = this.childGrobs.findProperty('lineIndex', clefLine).y;
-//     // we know clefLine === note index 0
-
-//     var lineCorrection = noteIndex * (this.get('staffLineThickness') / 2);
-//     return startTop + (noteIndex * vDistance) - lineCorrection;
-
-//   },
-
-//   // PreCalculation: the part of the notation process which processes and layouts everything
-//   // before the actual rendering round
-
-//   // parses a hash into a CanvasMusic object...
-
-//   parseHash: function (hash, column) {
-//     if (!hash) return; // don't parse anything invalid
-//     var name = hash.name;
-//     var staffBottomPosition = this.topOfStaffLineFor(1);
-//     var staffTopPosition = this.topOfStaffLineFor(this.get('numberOfLines'));
-
-//     if (!name) {
-//       console.log(this._notationCache);
-//       throw new Error("something fishy....");
-//     }
-//     var ret;
-//     var mix = {
-//       parentGrob: column,
-//       parentStaff: this,
-//       cm: this.get('cm'),
-//     };
-//     if (CanvasMusic.Barline.isBarline(name)) {
-//       ret = CanvasMusic.Barline.create(mix, {
-//         type: name,
-//         y: staffTopPosition,
-//         height: staffBottomPosition
-//       });
-//     }
-//     else if (name === "rest") { // hardcoded for now
-//       ret = CanvasMusic.Rest.create(mix, hash);
-//     }
-//     else { // assume a note for now
-//       ret = CanvasMusic.Note.create(mix, hash);
-//     }
-//     if (hash.markup) {
-//       ret = [ret]; // make it into an array
-//       var markupHash = {
-//         y: hash.markupDown ? staffBottomPosition: staffTopPosition,
-//         markup: hash.markup
-//       };
-//       if (hash.markupDown !== undefined) markupHash.markupDown = hash.markupDown;
-//       if (hash.markupAlign !== undefined) markupHash.markupAlign = hash.markupAlign;
-//       // the skipWidth functionality on markups sadly doesn't work correctly
-//       // so disabled for now. It needs looking up the previous column in order to detect
-//       // a markup collision
-//       //if (hash.markupSkipWidth !== undefined) markupHash.skipWidth = hash.markupSkipWidth;
-//       ret.push(CanvasMusic.Markup.create(mix, markupHash));
-//     }
-//     return ret;
-//   },
-
-//   // parseEvent: parses an event, returns a grob with all elements parsed
-//   parseEvent: function (event) {
-//     if (!event) return; // undefined when no event, so skip.
-//     var ret = CanvasMusic.Column.create({ cm: this.get('cm'), parentStaff: this, parentGrob: this });
-//     var adder = function (p) {
-//       if (SC.typeOf(p) === SC.T_ARRAY) p.forEach(ret.addChildGrob, ret);
-//       else ret.addChildGrob(p);
-//     };
-
-//     if (SC.typeOf(event) === SC.T_ARRAY) { // we have a block with multiple events
-//       event.map(function (e) {
-//         return this.parseHash(e, ret);
-//       }, this).forEach(adder, ret);
-//     }
-//     else if (SC.typeOf(event) === SC.T_HASH) {
-//       adder(this.parseHash(event, ret));
-//     }
-//     else {
-//       throw new Error("CanvasMusic.Staff#parseEvent: invalid event type found: " + SC.inspect(event));
-//     }
-//     return ret;
-//   },
-
-
-//   // advanceCursor:
-//   // What it does is to advance the cursor by a certain note length (usually minimum).
-//   // length is currently ignored, and might be for future use...
-//   // when it advances it parses the event, and adds the grob to the childGrobs
-//   advanceCursor: function (length) {
-//     //var curEvent;
-//     if (!this._notationCache) throw new Error("CanvasMusic.Staff#advanceCursor: Something is wrong, no _notationCache?");
-//     if (this._currentCursorAt >= this._notationCache.length) {
-//       this.set('doneParsing', true); // some indicator... (statecharts !!!)
-//       return;
-//     }
-//     this._currentCursorAt += 1;
-//     var grob = this.parseEvent(this._notationCache[this._currentCursorAt]);
-//     if (grob) this.addChildGrob(grob); // don't add undefined stuff
-//     return grob;
-//   },
-
-//   addBarline: function (barlinetype) {
-//     SC.Logger.log("adding barline type ", barlinetype);
-//     var barline = this.parseEvent( { name: barlinetype });
-//     if (barline) this.addChildGrob(barline);
-//     return barline;
-//   },
-
-//   toString: function () {
-//     return "CanvasMusic.Staff %@".fmt(SC.guidFor(this));
-//   },
-
-//   _currentCursorAt: null, // for caching the current cursor index
-
-//   _notationCache: null,
-
-//   // _generateNotationCache
-//   _generateNotationCache: function () {
-//     // what this does is generate an array based on the cursorSize. The array is a sparse array,
-//     // containing only events at the marker where the events take place
-
-//     //
-//     var ret = [];
-//     var cursorSize = this.get('cursorSize');
-//     var n = this.get('notes');
-//     // where to put the barlines... the problem is that the barline does not have a length as such
-//     // the best seems to be to put it on the note coming after... Let's do that for now...
-
-//     // we need to take into account, that an array could be exist in notes
-//     // but how to deal with an array (chord) having notes with different lengths...
-//     // it is easy, actually, because you just take the shortest one, because there should be a
-//     // note next to it in the end (this is most likely why you'd want voices :) )
-//     var numNotes = n.length;
-//     var curNote, curLength, block;
-//     for (var i = 0; i < numNotes; i += 1) {
-//       curNote = n[i];
-//       if (SC.typeOf(curNote) === SC.T_ARRAY) {
-//         curLength = curNote.getEach('length').get('@max'); // smallest note value is largest number
-//       }
-//       else curLength = curNote.length; // this catches both an array as well as a hash... (is this clever?)
-//       if (!curLength) { // not a note or rest, assume that it is something that needs to be attached to the next note
-//         //isBarLine = CanvasMusic.Barline.isBarLine(curNote);
-//         if (!block) block = [];
-//         block.push(curNote);
-//         continue; // skip to the next round
-//       }
-//       if (curLength) { // is a note or rest, or a
-//         if (block) {
-//           if (SC.typeOf(curNote) === SC.T_ARRAY) {
-//             block = block.concat(curNote);
-//           }
-//           else block.push(curNote);
-//           ret.push(block);
-//           block = null; // reset block
-//         }
-//         else ret.push(curNote);
-//         // adds 15 when curNote.length === 1
-//         // adds 7 when curNote.length === 2
-//         // we need to take into account any dots
-//         ret.length += (cursorSize / curLength) - 1;
-//       }
-//     }
-//     //
-//     //console.log(ret);
-//     this._notationCache = ret;
-//     this._numberOfEvents = ret.length; // used by the score to know how many times to call the advanceCursor function
-//     //always reset counter (what to do with the perhaps already existing content of childGrobs?)
-//     this._currentCursorAt = -1;
-//   }
-// });
-
-
-// SC.mixin(CanvasMusic.Staff, {
-
-//   // information about clefs
-//   // we also define the key signatures here, in order not to have to calculate the octaves etc
-//   clefs: {
-//     treble: {
-//       clefNote: CanvasMusic.Note.create({
-//         name: "g",
-//         octave: 1,
-//         isPlaceholder: true
-//       }),
-//       clefLine: 2,
-//       clefName: "clefs.G",
-//       keySignatures: {
-//         ces: ['bes1', 'es2', 'as1', 'des2', 'ges1', 'ces2', 'fes1'],
-//         ges: ['bes1', 'es2', 'as1', 'des2', 'ges1', 'ces2'],
-//         des: ['bes1', 'es2', 'as1', 'des2', 'ges1'],
-//         as:  ['bes1', 'es2', 'as1', 'des2'],
-//         es:  ['bes1', 'es2', 'as1' ],
-//         bes: ['bes1', 'es2'],
-//         f:   ['bes1'],
-//         c:   [],
-//         g:   ['fis2'],
-//         d:   ['fis2', 'cis2'],
-//         a:   ['fis2', 'cis2', 'gis1'],
-//         e:   ['fis2', 'cis2', 'gis1', 'dis2'],
-//         b:   ['fis2', 'cis2', 'gis2', 'dis2', 'ais1'],
-//         fis: ['fis2', 'cis2', 'gis2', 'dis2', 'ais1', 'eis2'],
-//         cis: ['fis2', 'cis2', 'gis2', 'dis2', 'ais1', 'eis2', 'bis1']
-//       }
-//     },
-//     bass: {
-//       clefNote: CanvasMusic.Note.create({
-//         name: "f",
-//         octave: 0,
-//         isPlaceholder: true
-//       }),
-//       clefLine: 4,
-//       clefName: "clefs.F",
-//       keySignatures: {
-//         ces: ['bes-1', 'es0', 'as-1', 'des0', 'ges-1', 'ces0', 'fes0'],
-//         ges: ['bes-1', 'es0', 'as-1', 'des0', 'ges-1', 'ces0'],
-//         des: ['bes-1', 'es0', 'as-1', 'des0', 'ges-1'],
-//         as:  ['bes-1', 'es0', 'as-1', 'des0'],
-//         es:  ['bes-1', 'es0', 'as-1'],
-//         bes: ['bes-1', 'es0'],
-//         f:   ['bes-1'],
-//         c:   [],
-//         g:   ['fis0'],
-//         d:   ['fis0', 'cis0'],
-//         a:   ['fis0', 'cis0', 'gis0'],
-//         e:   ['fis0', 'cis0', 'gis0', 'dis0'],
-//         b:   ['fis0', 'cis0', 'gis0', 'dis0', 'ais0'],
-//         fis: ['fis0', 'cis0', 'gis0', 'dis0', 'ais0', 'eis0'],
-//         cis: ['fis0', 'cis0', 'gis0', 'dis0', 'ais0', 'eis0', 'bis-1']
-//       }
-//     }
-//   }
-
-// });
-
-
-
 /*globals Presto*/
 
 /*
@@ -5799,6 +4353,12 @@ Presto.Score = Presto.Object.extend({
    * @type {Number}
    */
   cursorSize: 16,
+
+  /**
+   * The language recognized for note names, currently "nl" and "en" are supported
+   * @type {String}
+   */
+  language: "nl",
 
   init: function () {
     var canvas = this.canvas;
