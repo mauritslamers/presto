@@ -839,7 +839,7 @@ Presto.lilypondParser = {
   parseLilypond: function (code) {
     var ret = {
       staffs: []
-    }, score, staffs, parallel, staff, voices;
+    }, score, staffs, parallel, voices;
 
     this._previousNote = null;
     score = this.findBlock("score", code);
@@ -861,10 +861,10 @@ Presto.lilypondParser = {
         };
         s = this._staffRegex.exec(s)[1];
         var clef = this._clefRegex.exec(s);
-        if (clef){
+        if (clef) {
           r.clef = clef[1];
           // remove clef from code
-          s = s.slice(0, clef.index) + s.slice(clef.index+clef[0].length);
+          s = s.slice(0, clef.index) + s.slice(clef.index + clef[0].length);
           s = s.trim();
         }
         var time = this._timeRegex.exec(s);
@@ -893,7 +893,14 @@ Presto.lilypondParser = {
           r.notes.push(voices);
         }
         else {
-          r.notes.push([this.parseVoice(s)]);
+          // still check for voice blocks
+          if (this._voiceRegex.exec(s)) { // probably only one voice to be found...
+            this.findBlock("Voice", s).forEach(function (v) {
+              v = this._voiceRegex.exec(v)[1];
+              r.notes.push([this.parseVoice(v)]);
+            }, this);
+          }
+          else r.notes.push([this.parseVoice(s)]);
         }
         ret.staffs.push(r);
       }, this);
@@ -963,7 +970,7 @@ Presto.lilypondParser = {
         inRelative = false;
         continue;
       }
-      if (curItem === "<" && v[i+1] !== "<") { // chord
+      if (curItem === "<" && v[i + 1] !== "<") { // chord
         next = v.indexOf(">", i);
         match = this._chordRegex.exec(v.slice(i));
         if (!match) {
@@ -1077,7 +1084,7 @@ Presto.lilypondParser = {
     });
 
     //var length = 4;
-    var length = match[3]? parseInt(match[3], 10): null;
+    var length = match[3] ? parseInt(match[3], 10) : null;
     if (!length) {
       if (reference) length = reference.length;
       else if (prevLength) {
@@ -2447,7 +2454,7 @@ Presto.Note = Presto.Grob.extend({
    * It also sets a stem direction on a whole note, but a whole note doesn't draw its stem
    */
   setDefaultStemDirection: function () {
-    if (this.get('positionOnStaff') >= 0 ) {
+    if (this.get('positionOnStaff') >= 0) {
       this.stemDirection = Presto.STEMDIRECTION_UP;
     }
     else this.stemDirection = Presto.STEMDIRECTION_DOWN;
@@ -2584,7 +2591,7 @@ Presto.Note = Presto.Grob.extend({
    *
    * @return {String|Boolean} false if none, otherwise it returns the character name
    */
-  accidentalName: function (){
+  accidentalName: function () {
     // we need a system to look up which accidentals can be left out, because they either appear already
     // in the bar, or they are part of the key.
     // there also needs to be a forced natural / forced accidental
@@ -2611,8 +2618,7 @@ Presto.Note = Presto.Grob.extend({
    * Adds the accidental to the current note, if required
    */
   addAccidental: function () {
-    var name = this.get('name'),
-        whichAcc = this.get('accidentalName'),
+    var whichAcc = this.get('accidentalName'),
         acc;
 
     if (!whichAcc) return this;
@@ -2818,7 +2824,7 @@ Presto.Note = Presto.Grob.extend({
     var stemUp = this.get('stemUp');
     var stemLength;
 
-    if (stemUp) pos *= -1 ;
+    if (stemUp) pos *= -1;
 
     if (pos > 4) { // this implementation uses 5 staff spaces, because it looks a bit better
       stemLength = staff.calculateVerticalOffsetFor(pos + 5) - staff.calculateVerticalOffsetFor(pos);
@@ -2827,7 +2833,7 @@ Presto.Note = Presto.Grob.extend({
       // not entirely happy with the outcome, as there is still a bit of a jump between the last one here
       // and the first one of the next series
       stemLength = staff.calculateVerticalOffsetFor(pos + 5) - staff.calculateVerticalOffsetFor(pos);
-      stemLength += staffSpace * (7/6 - (1/6 * pos));
+      stemLength += staffSpace * ((7 / 6) - ((1 / 6) * pos));
     }
     else if (pos < 0 && pos > -7) {
       stemLength = staff.calculateVerticalOffsetFor(pos + 7) - staff.calculateVerticalOffsetFor(pos);
@@ -2842,7 +2848,7 @@ Presto.Note = Presto.Grob.extend({
 
     this.addChildGrob(Presto.Stem.create({
       x: startX + 1, // offset to the right for stem
-      y: stemUp? -1: 1,
+      y: stemUp ? -1: 1,
       toX: startX + 1,
       toY: toY, // perhaps here -1 to offset the -1 or +1 at y?
       score: this.score,
@@ -2858,6 +2864,7 @@ Presto.Note = Presto.Grob.extend({
    * in case this is a bottleneck, it can be simplyfied
    */
   removeStem: function () {
+    if (this.get('length') === 1) return this; // whole notes don't have stems
     var i = this.childGrobs.indexOf(this.childGrobs.findProperty('isStem'));
     this.childGrobs.removeAt(i);
   }
@@ -2890,7 +2897,7 @@ Presto.mixin(Presto.Note, {
   //TODO: make this use the defined language
   distanceBetween: function (noteOne, noteTwo) {
     if (!noteOne.isNote || !noteTwo.isNote) {
-      throw new Error ("Presto.Note.distanceBetween: Please use note instances");
+      throw new Error("Presto.Note.distanceBetween: Please use note instances");
     }
     var nn = this._noteNames;
     var firstNote = noteOne.get('rootTone');
@@ -2913,6 +2920,7 @@ Presto.mixin(Presto.Note, {
     var dist = this.distanceBetween(noteOne, noteTwo); // solve the off by one for intervals
     if (dist > 0) dist += 1;
     if (dist < 0) dist -= 1;
+    if (dist === 0) dist = 1;
     return dist;
   },
 
@@ -2923,7 +2931,7 @@ Presto.mixin(Presto.Note, {
    */
   isValidNoteName: function (name) {
     var notenames = Presto.Note._noteNames;
-    var exts = ['is','es','s'], ext;
+    var exts = ['is', 'es', 's'], ext;
     if (name) {
       if (notenames.indexOf(name[0]) > -1) {
         ext = name.slice(1);
@@ -3661,6 +3669,14 @@ Presto.Staff = Presto.Grob.extend({
   omitClef: false,
 
   /**
+   * whether to omit the time signature, default is to show
+   * if the time signature is omitted, the barlines are also not drawn
+   * automatically
+   * @type {Boolean}
+   */
+  omitTimeSignature: false,
+
+  /**
    * Line thickness of staff lines
    * @type {Number}
    */
@@ -3719,6 +3735,8 @@ Presto.Staff = Presto.Grob.extend({
   },
 
   addClef: function () {
+    if (this.omitClef) return;
+
     var clefName = this.get('clefName'),
         //mix = { score: this.score },
         staffSpace = this.score.get('size');
@@ -3901,6 +3919,7 @@ Presto.Staff = Presto.Grob.extend({
    * add the current time signature, numbers only for the moment
    */
   addTimeSignature: function () {
+    if (this.omitTimeSignature) return;
     var staffSpace = this.score.get('size');
     var c = Presto.TimeSignature.create({
       x: this._currentX,
@@ -4150,6 +4169,7 @@ Presto.Staff = Presto.Grob.extend({
         prevBarAt = this.get('_previousBarlineAt'),
         cursor = this._currentCursorAt;
 
+    if (this.omitTimeSignature) return;
     // 4 * (16/4) => 16, 2*(16/2) => 16, 6 * (16/8) => 12
     var numCursorsPerBar = numBeats * (cursorSize / beatType);
     if (cursor - prevBarAt === numCursorsPerBar) {
