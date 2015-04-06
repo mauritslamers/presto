@@ -19,6 +19,7 @@ var files = [
   "lib/time_signature.js",
   "lib/note_column.js",
   "lib/staff.js",
+  "webfontloader/webfontloader.js",
   "lib/score.js"
 ];
 
