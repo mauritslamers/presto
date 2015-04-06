@@ -27,31 +27,15 @@
       </div>
       <textarea style="width: 800px; height: 200px; font: 11pt Courier;" id="code" onChange="codeDidChange();">
 \score {
-  <<
   \new Staff {
     \clef treble
     \time 2/2
-    <<
     \new Voice {
       \relative c'' {
-        c4. bes8 a4 g4
+        <c c>1
       }
     }
-    \new Voice {
-      \relative c'' {
-        c4. bes8 a4 g4
-      }
-    }
-    >>
   }
-  \new Staff {
-    \clef treble
-    \time 2/2
-    \relative c'' {
-      c4. bes8 a4 g4
-    }
-  }
-  >>
 }
 
       </textarea>
@@ -73,6 +57,14 @@
       <script type="text/javascript" src="lib/time_signature.js"></script>
       <script type="text/javascript" src="lib/note_column.js"></script>
       <script type="text/javascript" src="lib/staff.js"></script>
+      <script type="text/javascript" src="webfontloader/webfontloader.js"></script>
+      <script type="text/javascript" src="lib/loadwebfont.js"></script>
+      <style type="text/css">
+      @font-face {
+        font-family: 'Emmentaler26';
+        src: url('fonts/emmentaler-26.woff') format('woff');
+      }
+      </style>
       <script type="text/javascript" src="lib/score.js"></script>
       <script type="text/javascript">
 
@@ -246,9 +238,8 @@
         var p = Presto.Score.from('example');
         window.setTimeout(function () {
           p.parse(score);
-          p.notate();
           p.render();
-        },100);
+        },1);
 
         function codeDidChange () {
           console.log('codeDidChange');
