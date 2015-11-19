@@ -241,7 +241,6 @@
           var code = document.getElementById('code').value;
           var parsedScore = Presto.lilypondParser.parseLilypond(code);
           p.parse(parsedScore);
-          p.notate();
           p.render();
         }
 
