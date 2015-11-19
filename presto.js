@@ -374,7 +374,7 @@ Presto.Object.prototype.constructor = Presto.Object;
  * Result is an Object which acts like an Array, which depends on Array.prototype, but which is not the global Array
  * and consequently can be extended without having those extensions leaking into the global prototype.
  */
-Presto.Array = function(opts) {
+Presto.Array = function (opts) {
   // perhaps this should be new Object(Array.prototype) for older browsers,
   // but it seems to me to be pretty unlikely to be necessary, as we require a canvas
   // element anyway.
@@ -391,7 +391,13 @@ Presto.Array = function(opts) {
     ret = (Array.apply(ret, opts) || ret);
   }
 
-  Presto.mixin(ret, Presto.Array.prototype);
+  // different way of including the functions on the prototype, as this is _MUCH_ faster.
+  var proto = Presto.Array.prototype;
+  for (var key in proto) {
+    ret[key] = proto[key];
+  }
+
+  //Presto.mixin(ret, Presto.Array.prototype);
   return ret;
 };
 
@@ -823,6 +829,8 @@ Presto.lilypondParser = {
    */
   _noteRegex: /\b([a-g](?:es|is|s)?)([',]*)(16|2|4|8|1)*(\.*)?/,
 
+  _restRegex: /\b[r|R](16|2|4|8|1)*(\.*)?/,
+
   /**
    * regex to match (and parse) a relative block
    * @type {RegExp}
@@ -831,9 +839,15 @@ Presto.lilypondParser = {
 
   /**
    * regex to match (and parse) a chord
-   * @type {[type]}
+   * @type {RegExp}
    */
   _chordRegex: /<(.+)>([1|2|4|8|16]?)(\.*)/,
+
+  /**
+   * regex to match (and parse) a bar command
+   * @type {RegExp}
+   */
+  _barRegex: /\\bar[\s\S]*?"(.+?)"/,
 
 
   parseLilypond: function (code) {
@@ -850,7 +864,10 @@ Presto.lilypondParser = {
       };
     }
     else {
-      score = score[0].trim();
+      if (score.length === 0 && staffs.length > 0) {
+        score = "\\score { " + code + "}";
+      }
+      else score = score[0].trim();
       parallel = this._parallelRegex.exec(score);
       //if (parallel) { // not sure why this is important, except perhaps
       //that staffs should otherwise be processed in parallel.
@@ -881,6 +898,15 @@ Presto.lilypondParser = {
           }
           s = s.slice(0, key.index) + s.slice(key.index + key[0].length);
           s = s.trim();
+        }
+        // try to detect relative outside a voice context
+        var voiceIndex = s.indexOf("\\new Voice");
+        voiceIndex = (voiceIndex === -1)? s.indexOf("\\context Voice") : voiceIndex;
+        if (voiceIndex > -1) {
+          var relIndex = s.indexOf("\\relative");
+          if (relIndex > -1 && relIndex < voiceIndex) {
+            throw new Error("relative cannot be used outside a Voice context");
+          }
         }
         // then parsing of contents, which can be either relative, absolute or a mix
         parallel = this._parallelRegex.exec(s);
@@ -926,7 +952,7 @@ Presto.lilypondParser = {
     var v = voiceContent;
     var ret = [];
     var len = v.length;
-    var curItem, match, cmd, chord, next, note, endOfNote;
+    var curItem, match, cmd, chord, next, note, endOfNote, tmpPrev;
     var prev = {
       length: 4
     };
@@ -936,6 +962,16 @@ Presto.lilypondParser = {
 
     var obj = {
       name: "voice"
+    };
+
+    var findSpacer = function (voice, fromIndex) {
+      var ret = voice.length;
+      [" ", "\n", "\t", "~"].forEach(function (s) {
+        var pos = voice.indexOf(s, fromIndex);
+        ret = (pos < ret && pos !== -1)? pos : ret;
+      });
+      if (ret === voice.length) ret = -1; // not found any
+      return ret;
     };
 
     for (var i = 0; i < len; i += 1) {
@@ -949,7 +985,7 @@ Presto.lilypondParser = {
           case "\\relative":
             match = this._relativeRegex.exec(v.slice(i));
             if (!match) throw new Error("syntax error in relative");
-            prev = this.parseNote(match[1] + match[2]);
+            prev = this.parseNote(match[1] + match[2], null, 4);
             inRelative = true;
             i = v.indexOf(match[3], i); // skip to the content of the relative
             break; // set relative parsing on, and set prev
@@ -961,7 +997,18 @@ Presto.lilypondParser = {
             obj.voiceNumber = 2;
             i += cmd.length;
             break;
+          case "\\bar":
+            match = this._barRegex.exec(v.slice(i));
+            if (!match) throw new Error("syntax error in bar");
+            i += match[0].length;
+            break;
+          case "\\clef":
+            match = this._clefRegex.exec(v.slice(i));
+            if (!match) throw new Error("syntax error in clef");
+            i += match[0].length;
+            break;
           default:
+            i += cmd.length;
             break;
         }
         continue;
@@ -989,19 +1036,30 @@ Presto.lilypondParser = {
         i += match[0].length;
         continue;
       }
-      // normal notes we assume
-      endOfNote = v.indexOf(" ", i);
+      if (curItem === "|") { // ignore bar checks for now
+        i += 1;
+        continue;
+      }
+      // now find the first spacing, which is one of " ", "\n", "\t", or "~"
+      endOfNote = findSpacer(v, i);
+      if (endOfNote === i) continue; // don't try to parse a spacer
+      // // normal notes we assume
+      // endOfNote = v.indexOf(" ", i);
+
       if (endOfNote === -1) { // only one reason it seems: end of string
         endOfNote = v.length;
       }
       note = v.slice(i, endOfNote);
       if (inRelative) {
-        prev = this.parseNote(note, prev);
+        if (prev.length === null) prev.length = 4; // default length
+        // don't overwrite the previous note when the new note actually is a rest
+        tmpPrev = this.parseNote(note, prev);
       }
       else {
-        prev = this.parseNote(note, null, prev.length);
+        tmpPrev = this.parseNote(note, null, prev.length);
       }
-      ret.push(prev);
+      ret.push(tmpPrev);
+      if (tmpPrev.name !== "rest") prev = tmpPrev;
       i += note.length;
     }
 
@@ -1016,7 +1074,7 @@ Presto.lilypondParser = {
    * Parses a chord
    * @param  {String|Array} chord     Chord in either string or regex result
    * @param  {Note} reference reference tone in case of relative
-   * @param {Number} reflength In case of absolute names, there is no reference, but there is a current lengt
+   * @param {Number} reflength In case of absolute names, there is no reference, but there is a current length
    *                           because lilypond allows the length to be omitted in both relative and absolute mode
    * @return {Array}           array of notes
    */
@@ -1056,51 +1114,70 @@ Presto.lilypondParser = {
     // match[3] => base length
     // match[4] => dots
     var noteNames = Presto.Note._noteNames;
-    var octave;
+    var noteName, octave, restMode = false, length, dots;
     var match = this._noteRegex.exec(note);
+
+    if (!match) { // this could be a rest
+      match = this._restRegex.exec(note);
+      if (match) {
+        noteName = "rest";
+        length = match[1] ? parseInt(match[1], 10) : null;
+        octave = reference? reference.octave: 0;
+        restMode = true;
+        if (match[2]) {
+          dots = match[2].split("").length;
+        }
+      }
+    }
     if (!match) {
       console.log('invalid note name?: ' + note);
       console.log(match);
-      throw new Error("WHoops?");
+      throw new Error("Expected note, but got something I don't understand: '" + note + "'");
     }
-    var noteName = match[1];
-    if (reference) {
-      var indexOfRef = noteNames.indexOf(reference.name[0]);
-      var indexOfNote = noteNames.indexOf(noteName[0]);
-      octave = reference.octave;
-      //_noteNames: ['c', 'd', 'e', 'f', 'g', 'a', 'b'],
-      if (indexOfRef < indexOfNote) {
-        if ((indexOfNote - indexOfRef) > 4) octave -= 1;
+    if (!restMode) {
+      noteName = match[1];
+      if (reference && reference.name !== "rest") {
+        var indexOfRef = noteNames.indexOf(reference.name[0]);
+        var indexOfNote = noteNames.indexOf(noteName[0]);
+        octave = reference.octave;
+        //_noteNames: ['c', 'd', 'e', 'f', 'g', 'a', 'b'],
+        if (indexOfRef < indexOfNote) {
+          if ((indexOfNote - indexOfRef) > 3) octave -= 1;
+        }
+        else if (indexOfNote < indexOfRef) {
+          if (indexOfRef - indexOfNote > 3) octave += 1;
+        }
       }
-      else if (indexOfNote < indexOfRef) {
-        if (indexOfRef - indexOfNote > 3) octave += 1;
+      else {
+        if (reference && reference.name === "rest") octave = reference.octave;
+        else octave = 0;
+      }
+
+      match[2].split("").forEach(function (c) {
+        if (c === "'") octave += 1;
+        if (c === ",") octave -= 1;
+      });
+
+      length = match[3] ? parseInt(match[3], 10) : null;
+      if (match[4]) {
+        dots = match[4].split("").length;
       }
     }
-    else octave = 0;
 
-    match[2].split("").forEach(function (c) {
-      if (c === "'") octave += 1;
-      if (c === ",") octave -= 1;
-    });
-
-    //var length = 4;
-    var length = match[3] ? parseInt(match[3], 10) : null;
     if (!length) {
       if (reference) length = reference.length;
       else if (prevLength) {
         length = prevLength;
-        // if (this._previousNote && this._previousNote.length) length = this._previousNote.length;
       }
     }
 
     var ret = {
       name: noteName,
       octave: octave,
-      length: length
+      length: length,
+      dots: dots
     };
-    if (match[4]) {
-      ret.dots = match[4].split("").length;
-    }
+
     this._previousNote = ret;
     return ret;
   },
@@ -1666,6 +1743,12 @@ Presto.Grob = Presto.Object.extend({
   isContainer: false, // set to true when the grob should not render anything itself
 
   /**
+   * if true, the render process should render this object, otherwise it should not
+   * @type {Boolean}
+   */
+  isVisible: true,
+
+  /**
    * Properties which need to be copied onto the render delegate
    * @type {Array}
    */
@@ -1693,6 +1776,7 @@ Presto.Grob = Presto.Object.extend({
     if (!Presto._isValidCoordinate(refX) || !Presto._isValidCoordinate(refY)) {
       throw new Error("Presto.Grob#render: invalid parent coordinates detected");
     }
+    if (!this.isVisible) return;
     var curX = this.get('x');
     var curY = this.get('y');
     var absX = curX + refX;
@@ -1703,6 +1787,7 @@ Presto.Grob = Presto.Object.extend({
       var baseObj = {
         x: absX,
         y: absY,
+        isVisible: this.isVisible,
         relX: curX,
         relY: curY
       };
@@ -2056,7 +2141,7 @@ Presto.Grob = Presto.Object.extend({
 // });
 
 
-/*globals Presto, console*/
+/*globals Presto*/
 
 Presto.Symbol = Presto.Grob.extend({
   init: function () {
@@ -2372,8 +2457,10 @@ Presto.Stem = Presto.Grob.extend({
   }
 });
 
-/*globals Presto, console*/
+/*globals Presto*/
 
+//TODO: think about creating a mixin which can be used on plain objects to give them note parsing
+//options without having to notate anything
 
 /**
  * Presto.Note is the base class for a note. It contains everything related to a note,
@@ -2499,6 +2586,32 @@ Presto.Note = Presto.Grob.extend({
    */
   rootTone: function () {
     return this.get('name')[0];
+  },
+
+
+  /**
+   * function to return the full length of a (dotted) note, where a dotted value
+   * is calculated against the scale of 2, 4, 8, 16
+   * A note length of 4 with dots will be smaller than 4. In order to keep the exponential scale
+   * the dotted value will be expressed as a division against the original value
+   * @param  {Hash} notehash the hash containing the note information
+   * @return {Number}          Length value expressed as a factor on the exponential length scale
+   */
+  fullLength: function () {
+    var l = this.length;
+    if (!l) return 0;
+    if (this.dots && this.dots > 0) {
+      // dot 1 is half the value of the original, 1/2
+      // dot 2 is half the value of the value added 1/4
+      // dot 3 is half the value of the value added last time 1/8 ...etc
+      var val = 1, wval = 1;
+      for (var i = 0; i < this.dots; i += 1) {
+        wval /= 2;
+        val += wval;
+      }
+      l /= val; // rewrite the length as divided value of the original
+    }
+    return l;
   },
 
   /**
@@ -3059,11 +3172,37 @@ Presto.Rest = Presto.Grob.extend({
     }
   },
 
+  /**
+   * function to return the full length of a (dotted) rest, where a dotted value
+   * is calculated against the scale of 2, 4, 8, 16
+   * A rest length of 4 with dots will be smaller than 4. In order to keep the exponential scale
+   * the dotted value will be expressed as a division against the original value
+   * @return {Number}          Length value expressed as a factor on the exponential length scale
+   */
+  fullLength: function () {
+    var l = this.length;
+    if (!l) return 0;
+    if (this.dots && this.dots > 0) {
+      // dot 1 is half the value of the original, 1/2
+      // dot 2 is half the value of the value added 1/4
+      // dot 3 is half the value of the value added last time 1/8 ...etc
+      var val = 1, wval = 1;
+      for (var i = 0; i < this.dots; i += 1) {
+        wval /= 2;
+        val += wval;
+      }
+      l /= val; // rewrite the length as divided value of the original
+    }
+    return l;
+  },
+
   init: function () {
     var length = this.get('length'),
         numDots = this.get('dots'),
         glyph = this.get('restGlyph'),
         dotglyph, i, prevwidth;
+
+    if (this.isPlaceholder) return;
 
     var symbol = Presto.Symbol.create({
       score: this.score,
@@ -3084,7 +3223,9 @@ Presto.Rest = Presto.Grob.extend({
       for (i = 0; i < numDots; i += 1) {
         dotglyph = Presto.Symbol.create({
           name: 'dots.dot',
-          x: prevwidth
+          x: prevwidth,
+          score: this.score,
+          staff: this.staff
         });
         this.addChildGrob(dotglyph);
         prevwidth += dotglyph.get('width');
@@ -3268,10 +3409,14 @@ Presto.TimeSignature = Presto.Column.extend({
       name: this.get('numberOfBeatsPerBar').toString(),
       y: 0 + this.staff.staffLineThickness,
       ignoreWidth: true,
+      staff: this.staff,
+      score: this.score
     }));
     this.addChildGrob(Presto.Symbol.create({
       name: this.get('beatType').toString(),
       y: staffSpace * 4 - this.staff.staffLineThickness,
+      staff: this.staff,
+      score: this.score
     }));
   },
 
@@ -3368,6 +3513,7 @@ Presto.NoteColumn = Presto.Column.extend({
     noteObjs.forEach(function (n) {
       n.x += Math.abs(min);
     });
+    this.noteStartOffset = min;
     //
     //
     //     //check for accidentals
@@ -3686,7 +3832,7 @@ Presto.Staff = Presto.Grob.extend({
    * the default positions of staff lines
    * @type {Array}
    */
-  defaultLinePositions: [4,2,0,-2,-4],
+  defaultLinePositions: [4, 2, 0, -2, -4],
 
   /**
    * in case you want to override the default line positions, set something here
@@ -3719,7 +3865,7 @@ Presto.Staff = Presto.Grob.extend({
     var score = this.score;
     var staffSpace = this.score.get('size');
     linePos.forEach(function (l, i) {
-      var y = staffSpace * l + lineWidth*i;
+      var y = (staffSpace * l) + (lineWidth * i);
       this.addChildGrob(Presto.Line.create({
         x: 0,
         y: y,
@@ -3747,12 +3893,12 @@ Presto.Staff = Presto.Grob.extend({
       name: clefName,
       x: staffSpace,
       //y: this.get('clefPosition') * staffSpace + this.staffLineThickness
-      y: this.calculateVerticalOffsetFor(this.get('clefPosition')) + this.staffLineThickness*3
+      y: this.calculateVerticalOffsetFor(this.get('clefPosition')) + (this.staffLineThickness * 3)
     });
 
 
     this.addChildGrob(symbol);
-    this._currentX += symbol.get('width') + 2*staffSpace;
+    this._currentX += symbol.get('width') + (2 * staffSpace);
   },
 
   /**
@@ -3792,7 +3938,7 @@ Presto.Staff = Presto.Grob.extend({
     if (!cache) this._verticalOffsetCache = cache = {};
     if (cache[pos] === undefined) {
       cache[pos] = pos * size;
-      cache[pos] -= Math.floor(pos/2) * lineThickness;
+      cache[pos] -= Math.floor(pos / 2) * lineThickness;
     }
     return cache[pos];
   },
@@ -3845,8 +3991,8 @@ Presto.Staff = Presto.Grob.extend({
       }
       note.helperLines = helperLines;
     }
-    if (note.y < this.maximumTopOffset) this.maximumTopOffset = this.calculateVerticalOffsetFor(notePos-4);
-    if (note.y > this.maximumBottomOffset) this.maximumBottomOffset = this.calculateVerticalOffsetFor(notePos+4);
+    if (note.y < this.maximumTopOffset) this.maximumTopOffset = this.calculateVerticalOffsetFor(notePos - 4);
+    if (note.y > this.maximumBottomOffset) this.maximumBottomOffset = this.calculateVerticalOffsetFor(notePos + 4);
     return note;
   },
 
@@ -3926,10 +4072,10 @@ Presto.Staff = Presto.Grob.extend({
       numberOfBeatsPerBar: this.get('numberOfBeatsPerBar'),
       beatType: this.get('beatType'),
       score: this.score,
-      staff: this.staff
+      staff: this
     });
     this.addChildGrob(c);
-    this._currentX += c.get('width') + (4*staffSpace);
+    this._currentX += c.get('width') + (4 * staffSpace);
     return this;
   },
 
@@ -3990,7 +4136,7 @@ Presto.Staff = Presto.Grob.extend({
     var names = Presto.Note.noteNames.nl.rootNotes;
     var keySig = this.get('keySignature');
     var l = {};
-    names.forEach( function (rootName) {
+    names.forEach(function (rootName) {
       var acc;
       keySig.forEach(function (a) {
         if (a[0] === rootName) {
@@ -4093,7 +4239,6 @@ Presto.Staff = Presto.Grob.extend({
 
     // now all notes in rhythmical "order" in voiceNotes, now zip where
     // necessary and add to the cache
-    var cursor = 0;
     var max = voiceNotes.getEach('length').get('@max');
     var w;
     for (var i = 0; i < max; i += 1) {
@@ -4149,7 +4294,6 @@ Presto.Staff = Presto.Grob.extend({
    */
   _generateNotationCache: function () {
     this._notationCache = Presto.Array.create();
-    var cursorSize = this.score.cursorSize;
     var n = this.get('notes');
     n.forEach(this._addNoteEventToNotationCache, this);
     this._numberOfEvents = this._notationCache.length;
@@ -4258,6 +4402,12 @@ Presto.Staff = Presto.Grob.extend({
     //this._currentX += (this.score.cursorSize / ret.minimumDuration) * this.durationSpaceIncrement * staffSpace;
     // add
     this._currentCursorAt += 1;
+    // check the _currentX and if longer than the current staff lines, lengthen them
+    this.childGrobs.filterProperty('isStaffLine').forEach(function (cg) {
+      if (this._currentX > cg.toX) {
+        cg.toX = this._currentX + 30;
+      }
+    }, this);
     return ret;
   }
 
@@ -4326,7 +4476,36 @@ Presto.mixin(Presto.Staff, {
 });
 
 
-/*globals Presto*/
+/* Web Font Loader v1.5.16 - (c) Adobe Systems, Google. License: Apache 2.0 */
+;(function(window,document,undefined){function aa(a,b,c){return a.call.apply(a.bind,arguments)}function ba(a,b,c){if(!a)throw Error();if(2<arguments.length){var d=Array.prototype.slice.call(arguments,2);return function(){var c=Array.prototype.slice.call(arguments);Array.prototype.unshift.apply(c,d);return a.apply(b,c)}}return function(){return a.apply(b,arguments)}}function k(a,b,c){k=Function.prototype.bind&&-1!=Function.prototype.bind.toString().indexOf("native code")?aa:ba;return k.apply(null,arguments)}var n=Date.now||function(){return+new Date};function q(a,b){this.K=a;this.w=b||a;this.G=this.w.document}q.prototype.createElement=function(a,b,c){a=this.G.createElement(a);if(b)for(var d in b)b.hasOwnProperty(d)&&("style"==d?a.style.cssText=b[d]:a.setAttribute(d,b[d]));c&&a.appendChild(this.G.createTextNode(c));return a};function r(a,b,c){a=a.G.getElementsByTagName(b)[0];a||(a=document.documentElement);a&&a.lastChild&&a.insertBefore(c,a.lastChild)}function ca(a,b){function c(){a.G.body?b():setTimeout(c,0)}c()}
+function s(a,b,c){b=b||[];c=c||[];for(var d=a.className.split(/\s+/),e=0;e<b.length;e+=1){for(var f=!1,g=0;g<d.length;g+=1)if(b[e]===d[g]){f=!0;break}f||d.push(b[e])}b=[];for(e=0;e<d.length;e+=1){f=!1;for(g=0;g<c.length;g+=1)if(d[e]===c[g]){f=!0;break}f||b.push(d[e])}a.className=b.join(" ").replace(/\s+/g," ").replace(/^\s+|\s+$/,"")}function t(a,b){for(var c=a.className.split(/\s+/),d=0,e=c.length;d<e;d++)if(c[d]==b)return!0;return!1}
+function u(a){if("string"===typeof a.na)return a.na;var b=a.w.location.protocol;"about:"==b&&(b=a.K.location.protocol);return"https:"==b?"https:":"http:"}function v(a,b){var c=a.createElement("link",{rel:"stylesheet",href:b}),d=!1;c.onload=function(){d||(d=!0)};c.onerror=function(){d||(d=!0)};r(a,"head",c)}
+function w(a,b,c,d){var e=a.G.getElementsByTagName("head")[0];if(e){var f=a.createElement("script",{src:b}),g=!1;f.onload=f.onreadystatechange=function(){g||this.readyState&&"loaded"!=this.readyState&&"complete"!=this.readyState||(g=!0,c&&c(null),f.onload=f.onreadystatechange=null,"HEAD"==f.parentNode.tagName&&e.removeChild(f))};e.appendChild(f);window.setTimeout(function(){g||(g=!0,c&&c(Error("Script load timeout")))},d||5E3);return f}return null};function x(a,b){this.Y=a;this.ga=b};function y(a,b,c,d){this.c=null!=a?a:null;this.g=null!=b?b:null;this.D=null!=c?c:null;this.e=null!=d?d:null}var da=/^([0-9]+)(?:[\._-]([0-9]+))?(?:[\._-]([0-9]+))?(?:[\._+-]?(.*))?$/;y.prototype.compare=function(a){return this.c>a.c||this.c===a.c&&this.g>a.g||this.c===a.c&&this.g===a.g&&this.D>a.D?1:this.c<a.c||this.c===a.c&&this.g<a.g||this.c===a.c&&this.g===a.g&&this.D<a.D?-1:0};y.prototype.toString=function(){return[this.c,this.g||"",this.D||"",this.e||""].join("")};
+function z(a){a=da.exec(a);var b=null,c=null,d=null,e=null;a&&(null!==a[1]&&a[1]&&(b=parseInt(a[1],10)),null!==a[2]&&a[2]&&(c=parseInt(a[2],10)),null!==a[3]&&a[3]&&(d=parseInt(a[3],10)),null!==a[4]&&a[4]&&(e=/^[0-9]+$/.test(a[4])?parseInt(a[4],10):a[4]));return new y(b,c,d,e)};function A(a,b,c,d,e,f,g,h){this.N=a;this.m=h}A.prototype.getName=function(){return this.N};function B(a){this.a=a}var ea=new A("Unknown",0,0,0,0,0,0,new x(!1,!1));
+B.prototype.parse=function(){var a;if(-1!=this.a.indexOf("MSIE")||-1!=this.a.indexOf("Trident/")){a=C(this);var b=z(D(this)),c=null,d=E(this.a,/Trident\/([\d\w\.]+)/,1),c=-1!=this.a.indexOf("MSIE")?z(E(this.a,/MSIE ([\d\w\.]+)/,1)):z(E(this.a,/rv:([\d\w\.]+)/,1));""!=d&&z(d);a=new A("MSIE",0,0,0,0,0,0,new x("Windows"==a&&6<=c.c||"Windows Phone"==a&&8<=b.c,!1))}else if(-1!=this.a.indexOf("Opera"))a:if(a=z(E(this.a,/Presto\/([\d\w\.]+)/,1)),z(D(this)),null!==a.c||z(E(this.a,/rv:([^\)]+)/,1)),-1!=this.a.indexOf("Opera Mini/"))a=
+z(E(this.a,/Opera Mini\/([\d\.]+)/,1)),a=new A("OperaMini",0,0,0,C(this),0,0,new x(!1,!1));else{if(-1!=this.a.indexOf("Version/")&&(a=z(E(this.a,/Version\/([\d\.]+)/,1)),null!==a.c)){a=new A("Opera",0,0,0,C(this),0,0,new x(10<=a.c,!1));break a}a=z(E(this.a,/Opera[\/ ]([\d\.]+)/,1));a=null!==a.c?new A("Opera",0,0,0,C(this),0,0,new x(10<=a.c,!1)):new A("Opera",0,0,0,C(this),0,0,new x(!1,!1))}else/OPR\/[\d.]+/.test(this.a)?a=F(this):/AppleWeb(K|k)it/.test(this.a)?a=F(this):-1!=this.a.indexOf("Gecko")?
+(a="Unknown",b=new y,z(D(this)),b=!1,-1!=this.a.indexOf("Firefox")?(a="Firefox",b=z(E(this.a,/Firefox\/([\d\w\.]+)/,1)),b=3<=b.c&&5<=b.g):-1!=this.a.indexOf("Mozilla")&&(a="Mozilla"),c=z(E(this.a,/rv:([^\)]+)/,1)),b||(b=1<c.c||1==c.c&&9<c.g||1==c.c&&9==c.g&&2<=c.D),a=new A(a,0,0,0,C(this),0,0,new x(b,!1))):a=ea;return a};
+function C(a){var b=E(a.a,/(iPod|iPad|iPhone|Android|Windows Phone|BB\d{2}|BlackBerry)/,1);if(""!=b)return/BB\d{2}/.test(b)&&(b="BlackBerry"),b;a=E(a.a,/(Linux|Mac_PowerPC|Macintosh|Windows|CrOS|PlayStation|CrKey)/,1);return""!=a?("Mac_PowerPC"==a?a="Macintosh":"PlayStation"==a&&(a="Linux"),a):"Unknown"}
+function D(a){var b=E(a.a,/(OS X|Windows NT|Android) ([^;)]+)/,2);if(b||(b=E(a.a,/Windows Phone( OS)? ([^;)]+)/,2))||(b=E(a.a,/(iPhone )?OS ([\d_]+)/,2)))return b;if(b=E(a.a,/(?:Linux|CrOS|CrKey) ([^;)]+)/,1))for(var b=b.split(/\s/),c=0;c<b.length;c+=1)if(/^[\d\._]+$/.test(b[c]))return b[c];return(a=E(a.a,/(BB\d{2}|BlackBerry).*?Version\/([^\s]*)/,2))?a:"Unknown"}
+function F(a){var b=C(a),c=z(D(a)),d=z(E(a.a,/AppleWeb(?:K|k)it\/([\d\.\+]+)/,1)),e="Unknown",f=new y,f="Unknown",g=!1;/OPR\/[\d.]+/.test(a.a)?e="Opera":-1!=a.a.indexOf("Chrome")||-1!=a.a.indexOf("CrMo")||-1!=a.a.indexOf("CriOS")?e="Chrome":/Silk\/\d/.test(a.a)?e="Silk":"BlackBerry"==b||"Android"==b?e="BuiltinBrowser":-1!=a.a.indexOf("PhantomJS")?e="PhantomJS":-1!=a.a.indexOf("Safari")?e="Safari":-1!=a.a.indexOf("AdobeAIR")?e="AdobeAIR":-1!=a.a.indexOf("PlayStation")&&(e="BuiltinBrowser");"BuiltinBrowser"==
+e?f="Unknown":"Silk"==e?f=E(a.a,/Silk\/([\d\._]+)/,1):"Chrome"==e?f=E(a.a,/(Chrome|CrMo|CriOS)\/([\d\.]+)/,2):-1!=a.a.indexOf("Version/")?f=E(a.a,/Version\/([\d\.\w]+)/,1):"AdobeAIR"==e?f=E(a.a,/AdobeAIR\/([\d\.]+)/,1):"Opera"==e?f=E(a.a,/OPR\/([\d.]+)/,1):"PhantomJS"==e&&(f=E(a.a,/PhantomJS\/([\d.]+)/,1));f=z(f);g="AdobeAIR"==e?2<f.c||2==f.c&&5<=f.g:"BlackBerry"==b?10<=c.c:"Android"==b?2<c.c||2==c.c&&1<c.g:526<=d.c||525<=d.c&&13<=d.g;return new A(e,0,0,0,0,0,0,new x(g,536>d.c||536==d.c&&11>d.g))}
+function E(a,b,c){return(a=a.match(b))&&a[c]?a[c]:""};function G(a){this.ma=a||"-"}G.prototype.e=function(a){for(var b=[],c=0;c<arguments.length;c++)b.push(arguments[c].replace(/[\W_]+/g,"").toLowerCase());return b.join(this.ma)};function H(a,b){this.N=a;this.Z=4;this.O="n";var c=(b||"n4").match(/^([nio])([1-9])$/i);c&&(this.O=c[1],this.Z=parseInt(c[2],10))}H.prototype.getName=function(){return this.N};function I(a){return a.O+a.Z}function ga(a){var b=4,c="n",d=null;a&&((d=a.match(/(normal|oblique|italic)/i))&&d[1]&&(c=d[1].substr(0,1).toLowerCase()),(d=a.match(/([1-9]00|normal|bold)/i))&&d[1]&&(/bold/i.test(d[1])?b=7:/[1-9]00/.test(d[1])&&(b=parseInt(d[1].substr(0,1),10))));return c+b};function ha(a,b){this.d=a;this.q=a.w.document.documentElement;this.Q=b;this.j="wf";this.h=new G("-");this.ha=!1!==b.events;this.F=!1!==b.classes}function J(a){if(a.F){var b=t(a.q,a.h.e(a.j,"active")),c=[],d=[a.h.e(a.j,"loading")];b||c.push(a.h.e(a.j,"inactive"));s(a.q,c,d)}K(a,"inactive")}function K(a,b,c){if(a.ha&&a.Q[b])if(c)a.Q[b](c.getName(),I(c));else a.Q[b]()};function ia(){this.C={}};function L(a,b){this.d=a;this.I=b;this.k=this.d.createElement("span",{"aria-hidden":"true"},this.I)}function M(a){r(a.d,"body",a.k)}
+function N(a){var b;b=[];for(var c=a.N.split(/,\s*/),d=0;d<c.length;d++){var e=c[d].replace(/['"]/g,"");-1==e.indexOf(" ")?b.push(e):b.push("'"+e+"'")}b=b.join(",");c="normal";"o"===a.O?c="oblique":"i"===a.O&&(c="italic");return"display:block;position:absolute;top:-9999px;left:-9999px;font-size:300px;width:auto;height:auto;line-height:normal;margin:0;padding:0;font-variant:normal;white-space:nowrap;font-family:"+b+";"+("font-style:"+c+";font-weight:"+(a.Z+"00")+";")}
+L.prototype.remove=function(){var a=this.k;a.parentNode&&a.parentNode.removeChild(a)};function O(a,b,c,d,e,f,g,h){this.$=a;this.ka=b;this.d=c;this.o=d;this.m=e;this.I=h||"BESbswy";this.v={};this.X=f||3E3;this.ca=g||null;this.H=this.u=this.t=null;this.t=new L(this.d,this.I);this.u=new L(this.d,this.I);this.H=new L(this.d,this.I);a=new H("serif",I(this.o));a=N(a);this.t.k.style.cssText=a;a=new H("sans-serif",I(this.o));a=N(a);this.u.k.style.cssText=a;a=new H("monospace",I(this.o));a=N(a);this.H.k.style.cssText=a;M(this.t);M(this.u);M(this.H);this.v.serif=this.t.k.offsetWidth;this.v["sans-serif"]=
+this.u.k.offsetWidth;this.v.monospace=this.H.k.offsetWidth}var P={sa:"serif",ra:"sans-serif",qa:"monospace"};O.prototype.start=function(){this.oa=n();var a=new H(this.o.getName()+",serif",I(this.o)),a=N(a);this.t.k.style.cssText=a;a=new H(this.o.getName()+",sans-serif",I(this.o));a=N(a);this.u.k.style.cssText=a;Q(this)};function R(a,b,c){for(var d in P)if(P.hasOwnProperty(d)&&b===a.v[P[d]]&&c===a.v[P[d]])return!0;return!1}
+function Q(a){var b=a.t.k.offsetWidth,c=a.u.k.offsetWidth;b===a.v.serif&&c===a.v["sans-serif"]||a.m.ga&&R(a,b,c)?n()-a.oa>=a.X?a.m.ga&&R(a,b,c)&&(null===a.ca||a.ca.hasOwnProperty(a.o.getName()))?S(a,a.$):S(a,a.ka):ja(a):S(a,a.$)}function ja(a){setTimeout(k(function(){Q(this)},a),50)}function S(a,b){a.t.remove();a.u.remove();a.H.remove();b(a.o)};function T(a,b,c,d){this.d=b;this.A=c;this.S=0;this.ea=this.ba=!1;this.X=d;this.m=a.m}function ka(a,b,c,d,e){c=c||{};if(0===b.length&&e)J(a.A);else for(a.S+=b.length,e&&(a.ba=e),e=0;e<b.length;e++){var f=b[e],g=c[f.getName()],h=a.A,m=f;h.F&&s(h.q,[h.h.e(h.j,m.getName(),I(m).toString(),"loading")]);K(h,"fontloading",m);h=null;h=new O(k(a.ia,a),k(a.ja,a),a.d,f,a.m,a.X,d,g);h.start()}}
+T.prototype.ia=function(a){var b=this.A;b.F&&s(b.q,[b.h.e(b.j,a.getName(),I(a).toString(),"active")],[b.h.e(b.j,a.getName(),I(a).toString(),"loading"),b.h.e(b.j,a.getName(),I(a).toString(),"inactive")]);K(b,"fontactive",a);this.ea=!0;la(this)};
+T.prototype.ja=function(a){var b=this.A;if(b.F){var c=t(b.q,b.h.e(b.j,a.getName(),I(a).toString(),"active")),d=[],e=[b.h.e(b.j,a.getName(),I(a).toString(),"loading")];c||d.push(b.h.e(b.j,a.getName(),I(a).toString(),"inactive"));s(b.q,d,e)}K(b,"fontinactive",a);la(this)};function la(a){0==--a.S&&a.ba&&(a.ea?(a=a.A,a.F&&s(a.q,[a.h.e(a.j,"active")],[a.h.e(a.j,"loading"),a.h.e(a.j,"inactive")]),K(a,"active")):J(a.A))};function U(a){this.K=a;this.B=new ia;this.pa=new B(a.navigator.userAgent);this.a=this.pa.parse();this.U=this.V=0;this.R=this.T=!0}
+U.prototype.load=function(a){this.d=new q(this.K,a.context||this.K);this.T=!1!==a.events;this.R=!1!==a.classes;var b=new ha(this.d,a),c=[],d=a.timeout;b.F&&s(b.q,[b.h.e(b.j,"loading")]);K(b,"loading");var c=this.B,e=this.d,f=[],g;for(g in a)if(a.hasOwnProperty(g)){var h=c.C[g];h&&f.push(h(a[g],e))}c=f;this.U=this.V=c.length;a=new T(this.a,this.d,b,d);d=0;for(g=c.length;d<g;d++)e=c[d],e.L(this.a,k(this.la,this,e,b,a))};
+U.prototype.la=function(a,b,c,d){var e=this;d?a.load(function(a,b,d){ma(e,c,a,b,d)}):(a=0==--this.V,this.U--,a&&0==this.U?J(b):(this.R||this.T)&&ka(c,[],{},null,a))};function ma(a,b,c,d,e){var f=0==--a.V;(a.R||a.T)&&setTimeout(function(){ka(b,c,d||null,e||null,f)},0)};function na(a,b,c){this.P=a?a:b+oa;this.s=[];this.W=[];this.fa=c||""}var oa="//fonts.googleapis.com/css";na.prototype.e=function(){if(0==this.s.length)throw Error("No fonts to load!");if(-1!=this.P.indexOf("kit="))return this.P;for(var a=this.s.length,b=[],c=0;c<a;c++)b.push(this.s[c].replace(/ /g,"+"));a=this.P+"?family="+b.join("%7C");0<this.W.length&&(a+="&subset="+this.W.join(","));0<this.fa.length&&(a+="&text="+encodeURIComponent(this.fa));return a};function pa(a){this.s=a;this.da=[];this.M={}}
+var qa={latin:"BESbswy",cyrillic:"&#1081;&#1103;&#1046;",greek:"&#945;&#946;&#931;",khmer:"&#x1780;&#x1781;&#x1782;",Hanuman:"&#x1780;&#x1781;&#x1782;"},ra={thin:"1",extralight:"2","extra-light":"2",ultralight:"2","ultra-light":"2",light:"3",regular:"4",book:"4",medium:"5","semi-bold":"6",semibold:"6","demi-bold":"6",demibold:"6",bold:"7","extra-bold":"8",extrabold:"8","ultra-bold":"8",ultrabold:"8",black:"9",heavy:"9",l:"3",r:"4",b:"7"},sa={i:"i",italic:"i",n:"n",normal:"n"},ta=/^(thin|(?:(?:extra|ultra)-?)?light|regular|book|medium|(?:(?:semi|demi|extra|ultra)-?)?bold|black|heavy|l|r|b|[1-9]00)?(n|i|normal|italic)?$/;
+pa.prototype.parse=function(){for(var a=this.s.length,b=0;b<a;b++){var c=this.s[b].split(":"),d=c[0].replace(/\+/g," "),e=["n4"];if(2<=c.length){var f;var g=c[1];f=[];if(g)for(var g=g.split(","),h=g.length,m=0;m<h;m++){var l;l=g[m];if(l.match(/^[\w-]+$/)){l=ta.exec(l.toLowerCase());var p=void 0;if(null==l)p="";else{p=void 0;p=l[1];if(null==p||""==p)p="4";else var fa=ra[p],p=fa?fa:isNaN(p)?"4":p.substr(0,1);l=l[2];p=[null==l||""==l?"n":sa[l],p].join("")}l=p}else l="";l&&f.push(l)}0<f.length&&(e=f);
+3==c.length&&(c=c[2],f=[],c=c?c.split(","):f,0<c.length&&(c=qa[c[0]])&&(this.M[d]=c))}this.M[d]||(c=qa[d])&&(this.M[d]=c);for(c=0;c<e.length;c+=1)this.da.push(new H(d,e[c]))}};function V(a,b){this.a=(new B(navigator.userAgent)).parse();this.d=a;this.f=b}var ua={Arimo:!0,Cousine:!0,Tinos:!0};V.prototype.L=function(a,b){b(a.m.Y)};V.prototype.load=function(a){var b=this.d;"MSIE"==this.a.getName()&&1!=this.f.blocking?ca(b,k(this.aa,this,a)):this.aa(a)};
+V.prototype.aa=function(a){for(var b=this.d,c=new na(this.f.api,u(b),this.f.text),d=this.f.families,e=d.length,f=0;f<e;f++){var g=d[f].split(":");3==g.length&&c.W.push(g.pop());var h="";2==g.length&&""!=g[1]&&(h=":");c.s.push(g.join(h))}d=new pa(d);d.parse();v(b,c.e());a(d.da,d.M,ua)};function W(a,b){this.d=a;this.f=b;this.p=[]}W.prototype.J=function(a){var b=this.d;return u(this.d)+(this.f.api||"//f.fontdeck.com/s/css/js/")+(b.w.location.hostname||b.K.location.hostname)+"/"+a+".js"};
+W.prototype.L=function(a,b){var c=this.f.id,d=this.d.w,e=this;c?(d.__webfontfontdeckmodule__||(d.__webfontfontdeckmodule__={}),d.__webfontfontdeckmodule__[c]=function(a,c){for(var d=0,m=c.fonts.length;d<m;++d){var l=c.fonts[d];e.p.push(new H(l.name,ga("font-weight:"+l.weight+";font-style:"+l.style)))}b(a)},w(this.d,this.J(c),function(a){a&&b(!1)})):b(!1)};W.prototype.load=function(a){a(this.p)};function X(a,b){this.d=a;this.f=b;this.p=[]}X.prototype.J=function(a){var b=u(this.d);return(this.f.api||b+"//use.typekit.net")+"/"+a+".js"};X.prototype.L=function(a,b){var c=this.f.id,d=this.d.w,e=this;c?w(this.d,this.J(c),function(a){if(a)b(!1);else{if(d.Typekit&&d.Typekit.config&&d.Typekit.config.fn){a=d.Typekit.config.fn;for(var c=0;c<a.length;c+=2)for(var h=a[c],m=a[c+1],l=0;l<m.length;l++)e.p.push(new H(h,m[l]));try{d.Typekit.load({events:!1,classes:!1})}catch(p){}}b(!0)}},2E3):b(!1)};
+X.prototype.load=function(a){a(this.p)};function Y(a,b){this.d=a;this.f=b;this.p=[]}Y.prototype.L=function(a,b){var c=this,d=c.f.projectId,e=c.f.version;if(d){var f=c.d.w;w(this.d,c.J(d,e),function(e){if(e)b(!1);else{if(f["__mti_fntLst"+d]&&(e=f["__mti_fntLst"+d]()))for(var h=0;h<e.length;h++)c.p.push(new H(e[h].fontfamily));b(a.m.Y)}}).id="__MonotypeAPIScript__"+d}else b(!1)};Y.prototype.J=function(a,b){var c=u(this.d),d=(this.f.api||"fast.fonts.net/jsapi").replace(/^.*http(s?):(\/\/)?/,"");return c+"//"+d+"/"+a+".js"+(b?"?v="+b:"")};
+Y.prototype.load=function(a){a(this.p)};function Z(a,b){this.d=a;this.f=b}Z.prototype.load=function(a){var b,c,d=this.f.urls||[],e=this.f.families||[],f=this.f.testStrings||{};b=0;for(c=d.length;b<c;b++)v(this.d,d[b]);d=[];b=0;for(c=e.length;b<c;b++){var g=e[b].split(":");if(g[1])for(var h=g[1].split(","),m=0;m<h.length;m+=1)d.push(new H(g[0],h[m]));else d.push(new H(g[0]))}a(d,f)};Z.prototype.L=function(a,b){return b(a.m.Y)};var $=new U(this);$.B.C.custom=function(a,b){return new Z(b,a)};$.B.C.fontdeck=function(a,b){return new W(b,a)};$.B.C.monotype=function(a,b){return new Y(b,a)};$.B.C.typekit=function(a,b){return new X(b,a)};$.B.C.google=function(a,b){return new V(b,a)};this.WebFont||(this.WebFont={},this.WebFont.load=k($.load,$),this.WebFontConfig&&$.load(this.WebFontConfig));})(this,document);
+/*globals Presto, console, WebFont*/
 
 /*
   A score wraps a piece of notation and displays it onto a canvas element.
@@ -4380,6 +4559,8 @@ Presto.Score = Presto.Object.extend({
    */
   language: "nl",
 
+  autoAdjustCanvasSize: true,
+
   init: function () {
     var canvas = this.canvas;
     if (!canvas) {
@@ -4398,12 +4579,18 @@ Presto.Score = Presto.Object.extend({
   },
 
   /**
-   * Function which parses the given array containing the musical information
+   * Function which parses the given array containing the musical information.
+   * it will not start the parsing however before the font is loaded because of the size measurements.
+   * If the font is not ready yet, it will set the notation hash to _parseArguments, which will indicate
+   * the fontActive callback to parse that notation again.
    * @param  {Array} notation The notation which is a collection of staffs
    * @return {Presto.Score}          current instance
    */
   parse: function (notation) {
-    this.initFontInfo();
+    if (!this.fontReady) {
+      this._parseArguments = notation;
+      return;
+    }
     if (this._rootGrob) { // we are asked to parse again, remove rootgrob
       this._rootGrob.childGrobs = null;
     }
@@ -4421,24 +4608,43 @@ Presto.Score = Presto.Object.extend({
       });
     }, this));
     this._rootGrob.addChildGrobs(s);
+    this._notate();
   },
 
   /**
    * This function will start the actual notation process. It walks through the notation in the smallest
    * rhythmical steps and aligns everything where necessary
    */
-  notate: function () {
+  _notate: function () {
     var staffs = this._staffs,
-        stepSize = this.get('cursorSize'),
         maxEvents = 1, // default, walk through it once
-        i, notatedObjects;
+        i, notatedObjects, max_x, next_x, max_noteOffset;
 
     var advanceStaff = function (s) {
       var ret = s.advanceCursor(1);
-      if (s._numberOfEvents > maxEvents) {
+      if (s._numberOfEvents > maxEvents) { // TODO: document why this is necessary
         maxEvents = s._numberOfEvents;
       }
       return ret;
+    };
+
+    // var calculateMaxSpacing = function (obj) {
+    //   var m;
+    //   if (obj) {
+    //     m = obj.get('x') + obj.get('width');
+    //     max_x = (m > max_x)? m: max_x;
+    //   }
+    // };
+
+    var adjustHorizontalSpacing = function (e) {
+      if (e) {
+        if (e.noteStartOffset && e.noteStartOffset !== max_noteOffset) {
+          e.x += Math.abs(e.noteStartOffset) - Math.abs(max_noteOffset);
+        }
+        if (!e.noteStartOffset) {
+          e.x = max_x + Math.abs(max_noteOffset);
+        }
+      }
     };
 
     // Stepping through all staffs at once. For every step all staffs are advanced.
@@ -4446,7 +4652,18 @@ Presto.Score = Presto.Object.extend({
     // When all staffs have been advanced, the elements will be aligned.
     // it is required to advance all staffs at least once
     for (i = 0; i < maxEvents; i += 1) {
-      notatedObjects = staffs.map(advanceStaff);
+      notatedObjects = Presto.Array.create(staffs.map(advanceStaff));
+      next_x = staffs.getEach('_currentX').get('@max');
+      max_x = notatedObjects.getEach('x').get("@max");
+      max_noteOffset = notatedObjects.getEach('noteStartOffset').get('@min');
+      notatedObjects.forEach(adjustHorizontalSpacing);
+      staffs.setEach('_currentX', next_x);
+      if (this.autoAdjustCanvasSize) {
+        if (this.canvas.width < next_x) {
+          this.canvas.width = next_x + 50;
+        }
+      }
+      // notatedObjects.forEach(calculateMaxSpacing);
     }
     //console.log(staffs.getEach('y'));
     this._adjustStaffSpacing();
@@ -4466,12 +4683,14 @@ Presto.Score = Presto.Object.extend({
       var maxBottom = s.get('maximumBottomOffset');
       var diff = s.y + maxTop - prevCenter; // maxTop is negative by default
       if (diff < 0) {
-        s.y -= diff - (2*staffSpace);
+        s.y += Math.abs(diff - (2 * staffSpace));
       } // headroom
       if (nextStaff) { // check whether the center of the next staff is far enough away to
-        diff = nextStaff.y - s.y - maxBottom; // maxBottom is positive by default
+        // maxBottom is positive by default, topOffset is negative, therefore both plus
+        // idea is to take nextStaff center - top margin minus the current staff center plus bottom margin
+        diff = (nextStaff.y - Math.abs(nextStaff.get('maximumTopOffset'))) - (s.y + maxBottom);
         if (diff < 0) {
-          nextStaff.y += maxBottom + (2*staffSpace);
+          nextStaff.y += Math.abs(diff) + (2 * staffSpace);
         }
       }
       prevCenter = s.y;
@@ -4479,13 +4698,18 @@ Presto.Score = Presto.Object.extend({
   },
 
   /**
-   * This function will start the rendering on the canvas element
+   * This function will start the rendering on the canvas element.
    */
-  render: function () {
+  render: function (x, y) {
+    if (!this.fontReady) {
+      this._suspendedRender = true;
+      return;
+    }
     // before rendering, blank the canvas element
     this.clear();
-
-    var absPos = this._rootGrob.render(0,0);
+    x = x || 0;
+    y = y || 0;
+    var absPos = this._rootGrob.render(x, y);
     absPos.forEach(function (g) {
       g.render(this._ctx);
     }, this);
@@ -4519,9 +4743,46 @@ Presto.Score = Presto.Object.extend({
     this._ctx = canvas.getContext('2d');
     this.width = canvas.width;
     this.height = canvas.height;
-    this._ctx.measureText("0"); // force the font to load?
-    this.initFontInfo();
+    //this.initFontInfo();
   },
+
+  /**
+   * this function is called by the webfontloader callback to indicate that the font is loaded and that we are ready to render.
+   *
+   */
+  fontIsReady: function () {
+    this.initFontInfo();
+    this.fontReady = true;
+    if (this._parseArguments) {
+      var notation = this._parseArguments;
+      this._parseArguments = null;
+      this.parse(notation);
+    }
+    if (this._suspendedRender) {
+      this._suspendedRender = false;
+      this.render();
+    }
+  },
+
+  /**
+   * indicator to internal functions whether the font is ready
+   * @type {Boolean}
+   */
+  fontReady: false,
+
+  /**
+   * this property is set by #parse when it is called before the font is ready, to indicate that it should be called when
+   * the font is ready, and containing its original arguments
+   * @type {Boolean}
+   */
+  _parseArguments: false,
+
+  /**
+   * this property is set by #render when it is called before the font is ready, to indicate that it should be called when the
+   * font is ready.
+   * @type {Boolean}
+   */
+  _suspendedRender: false,
 
   /**
    * the rendering context
@@ -4535,7 +4796,7 @@ Presto.Score = Presto.Object.extend({
    * @return {Number}     points
    */
   _px2pt: function (val) {
-    return val * (16/3);
+    return val * (16 / 3);
   },
 
   /**
@@ -4543,8 +4804,8 @@ Presto.Score = Presto.Object.extend({
    * @param  {Number} val in points
    * @return {Number}     pixels
    */
-  _pt2px: function (val){
-    return val * (3/16);
+  _pt2px: function (val) {
+    return val * (3 / 16);
   },
 
   /**
@@ -4578,224 +4839,57 @@ Presto.Score.mixin({
    * @return {Presto.Score instance}        the instance of the Score object
    */
   from: function (canvas) {
-    return Presto.Score.create({
+    var s = Presto.Score.create({
       canvas: canvas
     });
+    this._scores.push(s);
+    return s;
+  },
+
+  /**
+   * keeping a reference to score instances. This is done in order to trigger font initialization on the score
+   * when the font is loaded.
+   * @type {Array}
+   */
+  _scores: [],
+
+
+  /**
+   * This function is the callback for WebFontLoader and is triggered once for each font that's loaded. Attached but not used.
+   */
+  fontLoading: function (familyName, fvd) {
+    //console.log("fontLoading");
+    //console.log(arguments);
+  },
+
+  /**
+   * this function is the active callback for WebFontLoader, and is triggered once for each font that is loaded. Attached and
+   * @param  {String} familyName font family name
+   * @param  {String} fvd        size etc
+   */
+  fontActive: function (familyName, fvd) {
+    // console.log("fontActive");
+    // console.log(arguments);
+    // update every score instance and trigger the font info generation
+    Presto.Score._scores.forEach(function (s) {
+      s.fontIsReady();
+    });
+  },
+
+  fontInactive: function (familyName, fvd) {
+    console.log("fontInactive");
+    console.log(arguments);
   }
 
 });
 
-///*globals CanvasMusic */
-
-
-
-
-
-// the difficulty in music notation is that things need to be aligned vertically, while only having
-// horizontal significance. So, elements need to be added horizontally, and then somehow aligned vertically.
-// I am not entire sure how Lilypond achieves this, except that it has to do with the Bar Engraver, and that it will
-// synchronize relative to the "beat".
-// Normally, Lilypond will force everything to be in the same meter, and set things accordingly. When using a polymetric
-// approach (say 3/4 and 4/4), certain engravers have to be moved from the score context to the staff context.
-// In way, in case of a 3/4 and 4/4, the quarter notes that should come together should be vertically aligned.
-// If we would copy the Lilypond behaviour to the letter, the best API way to achieve this would be to use mixins
-// where the processing part is done with a mixin.
-//
-// All this writing is because I needed to figure out a way to have one calculation round and then one process /
-// render round. This would make it easy to have everything calculated and then just start the render at
-// the top, and everything underneath got called. It saves having to move something that is already rendered
-// onto the canvas.
-//
-// The original implementation of CanvasMusic was simply to have each staff write out its notes without looking
-// at the other staffs. If a synchronization between staffs needs to be done, the only way to make that work is
-// to walk through the staffs on a basis of note values. As the lowest value supported (at the moment) is a 16th
-// we can move every staff forward one 16th, which is the so called cursorSize.
-// Every staff will generate a notationCache from the notes it is given, which is an array of notation events.
-// This array is essentially a sparse array, because it is en event list where the 16th is the index.
-// If there isn't anything to do the advanceCursor(length) function will return false, otherwise it will return
-// ...
-// The easiest would be to have advanceCursor return a Grob (relative to the staff) containing the elements notated
-// (reason is that sometimes more than just a note gets created. Think of barlines, lyrics, dynamics etc... (markup can
-// be ignored for that matter)).
-//
-// This Grob could be automatically added to the staff childGrobs, but it would allow the score context (which oversees
-// the notation process) to adjust the position of that grob forward or backward, moving all elements of that
-// block in the process...
-
-// If there is nothing to process for that staff, we continue with the next one.
-//
-
-
-// CanvasMusic.Score = CanvasMusic.Grob.extend({
-
-//   staffs: null,
-
-//   staffDistance: null,
-
-//   cursorSize: 16, // the smallest note size we allow
-
-//   parent: null, // hook where the CanvasMusic instance will be
-
-//   init: function () {
-//     arguments.callee.base.apply(this, arguments);
-//     var staffs = this.get('staffs');
-//     if (staffs) {
-//       // create staffs out of the data
-//       this.parse(staffs);
-//     }
-//   },
-
-//   toString: function () {
-//     return "CanvasMusic.Score x: %@, y: %@".fmt(this.get('x'), this.get('y'));
-//   },
-
-//   size: function () {
-//     return this.getPath('parent.size');
-//   }.property('parent').cacheable(),
-
-//   fontSize: function () {
-//     return this.getPath('parent.fontSize');
-//   }.property('parent').cacheable(),
-
-//   parse: function (staffs) { // start the parsing of all the content
-//     var size = this.getPath('parent.size');
-//     if (!size) throw new Error("No size set on parent");
-//     if (!this.staffDistance) this.staffDistance = 10 * size;
-//     var vOffset = 4 * size;
-//     var staffDistance = this.staffDistance;
-//     var s = this._staffs = staffs.map(function (s, i) {
-//       return CanvasMusic.Staff.create({
-//         x: 0,
-//         y: vOffset + (i * staffDistance),
-//         width: this.get('width'),
-//         notes: s.notes,
-//         parentGrob: this,
-//         cm: this.get('parent'),
-//         clef: s.clef,
-//         time: s.time,
-//         key: s.key
-//       });
-//     }, this);
-
-//     // now start the advancing...
-//     // we take the max length:
-//     var numEventsPerStaff = s.getEach('_numberOfEvents');
-//     var numStaffs = s.get('length');
-//     var max = numEventsPerStaff.get('@max'); // I love SC :)
-//     var g, i, j, tmp;
-//     var cursorSize = this.get('cursorSize');
-//     var alignCache = [];
-
-//     for (i = 0; i < max; i += 1) { // num events
-//       if (i % cursorSize === 0 && i !== 0) { // time for a barline
-//         //tmp = [];
-//         for (j = 0; j < numStaffs; j += 1) {
-//           if (i < numEventsPerStaff[j]) {
-//             // write barline
-//             g = s[j].addBarline(CanvasMusic.Barline.T_SINGLE);
-//           }
-//           //tmp.push(g);
-//         }
-//         //alignCache.push(tmp);
-//       }
-//       tmp = [];
-//       for (j = 0; j < numStaffs; j += 1) { // yes a forEach could have worked...
-//         if (i < numEventsPerStaff[j]) {
-//           g = s[j].advanceCursor(); // returns a column if something was added
-//           if (g) tmp[j] = g;
-//         }
-//       }
-//       alignCache.push(tmp);
-//     }
-
-//     if (s.length > 1) {
-//       var lastStaff = s.get('lastObject');
-//       var staffHeight = lastStaff.y - (lastStaff.get('numberOfLines') * lastStaff.get('staffLineThickness'));
-//       this.addChildGrob(CanvasMusic.Line.create({
-//         y: vOffset,
-//         height: staffHeight,
-//         lineWidth: 4
-//       }));
-//     }
-//     s.forEach(this.addChildGrob, this);
-//     this._alignCache = alignCache;
-//     this.invokeNext('performStaffAligning');
-//      //console.log("Score: " + this.childGrobs.getEach('y'));
-//   },
-
-//   performStaffAligning: function () {
-
-//     // this alignment is done as last stage before the actual process of rendering.
-//     // This is because the first stage is the processing of the events into objects,
-//     // then the columns and stacking is done
-//     // and then comes the aligning between the staves...
-//     // So... essentially, we need to walk through the same procedure as the processing,
-//     // as in that we walk through the staves based on the rhythmical grid,
-//     // and stretch anything based on the alignment in th rhythmical grid. This means that
-//     // staves where nothing exists at that moment, should still add the width of the current processed grobs
-//     //
-
-//     // now the alignment
-//     // the alignment consists of a few elements:
-//     // - the note head alignment: aligning all the vertical columns to the right most
-//     //   note head (marginLeft adjustment)
-//     // - the width alignment: if one column is wider than the others, the other columns must
-//     //   be moved in order for the note head alignment to make sense
-//     //
-//     // we also need to align the key signatures
-//     //debugger;
-//     var kS = this._staffs.getEach('childGrobs').flatten().filterProperty('isKeySignature');
-//     var ksMax = kS.getEach('width').get('@max');
-//     kS.forEach(function (k) {
-//       var diff = ksMax - k.get('width');
-//       k.move('marginRight', diff);
-//     });
-
-
-
-//     // we have to step through the staves one event at a time, the issue is that we cannot know
-//     // which events are to be aligned, unless we keep some record from the parsing process
-//     // That record is build up in this._alignCache, which contains per insertion moment everything that needs to be
-//     // aligned.
-
-//     // the align cache either contains barlines or columns (barlines are now ignored first, because they
-//     // should be aligned automatically if the rest is... (?))
-
-//     // what should happen is that we check when the different staves will have another element simultaneously...?
-//     // Or we should indeed walk through
-//     //
-//     this._alignCache.forEach(function (cache) {
-//       //cache is an array
-//       var maxWidth = cache.getEach('width').get('@max');
-//       cache.forEach(function (col) {
-//         var diff = maxWidth - col.get('widthOfChildGrobs') + this.get('size');
-//         col.move('marginLeft', diff);
-//       }, this);
-//     }, this);
-
-
-//     // var noteLefts, maxNoteLeft, columnWidths, maxColumnWidth;
-//     // var adjustMargins = function (c, i) {
-//     //   if (c.get('isColumn')) { // don't try to align anything else
-//     //     var diff = maxNoteLeft - noteLefts[i];
-//     //     c.set('marginLeft', diff);
-//     //   }
-//     // };
-
-
-
-//     //noteLefts = tmp.getEach('firstNoteLeft').without(undefined); // calculating once is enough
-
-
-
-//     // if (noteLefts.length > 1) {
-//     //   //debugger;
-//     //   //maxNoteLeft = noteLefts.get('@max');
-//     //   //tmp.forEach(adjustMargins);
-//     //   // columnWidths = tmp.getEach('width'); // take into account the changes performed in the aligning
-//     //   // maxColumnWidth = columnWidths.get('@max');
-
-//     // }
-//   }
-
-// });
+// we have to perform a trick in order to force the webfont to load correctly
+// we use the webfontloader.js from the webfontloader folder (which is taken from https://github.com/typekit/webfontloader)
+WebFont.load({
+  custom: {
+    families: ['Emmentaler26']
+  },
+  fontloading: Presto.Score.fontLoading,
+  fontactive: Presto.Score.fontActive,
+  fontinactive: Presto.Score.fontInactive
+});
