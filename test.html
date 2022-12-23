@@ -1,13 +1,12 @@
 <html>
    <head>
-      <title>canvasmusic test</title>
-      <script type="text/javascript" src="canvas_music.js"></script>
-      <script type="text/javascript" src="emmentaler.js"></script>
-      <link href="canvas_music.css" rel="stylesheet" type="text/css">
+      <title>Presto test</title>
+      
    </head>
    <body>
       <canvas id='example' width=1200 height=1000></canvas>
-      <script type="text/javascript">
+      <script type="module">
+        import { Score } from './lib/score.js';
         var c = document.getElementById('example');
 
         var notesStaffOne = [
@@ -246,11 +245,13 @@
           //staffs: [staffOne]
         };
 
-        var example = new CanvasMusic("example",{
-          drawImmediately: true, // immediately draw when inserted
-          size: 35, // pt size of font
-          score: score
-        });
+        var p = Score.from('example');
+
+
+          p.parse(score);
+          p.render();
+        
+
 
 
       </script>
