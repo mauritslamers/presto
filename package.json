@@ -1,0 +1,27 @@
+{
+  "name": "presto",
+  "version": "1.0.0",
+  "description": "Music notation system for the web",
+  "main": "index.js",
+  "type": "module",
+  "directories": {
+    "lib": "lib",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mauritslamers/presto.git"
+  },
+  "author": "Maurits Lamers",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/mauritslamers/presto/issues"
+  },
+  "homepage": "https://github.com/mauritslamers/presto#readme",
+  "devDependencies": {
+    "eslint": "^8.30.0"
+  }
+}
