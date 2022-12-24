@@ -42,7 +42,7 @@
       <div id="errormessage" style="color: red;"></div>
       <input type="button" onClick="codeDidChange();" value="Update"></input>
       <canvas id='example' width=1200 height=500></canvas>
-      <script type="text/javascript" src="lib/base.js"></script>
+      <!-- <script type="text/javascript" src="lib/base.js"></script>
       <script type="text/javascript" src="lib/lilypond_syntax.js"></script>
       <script type="text/javascript" src="lib/font_info.js"></script>
       <script type="text/javascript" src="lib/grob.js"></script>
@@ -58,17 +58,17 @@
       <script type="text/javascript" src="lib/note_column.js"></script>
       <script type="text/javascript" src="lib/staff.js"></script>
       <script type="text/javascript" src="webfontloader/webfontloader.js"></script>
-      <script type="text/javascript" src="lib/loadwebfont.js"></script>
+      <script type="text/javascript" src="lib/loadwebfont.js"></script> -->
       <style type="text/css">
       @font-face {
         font-family: 'Emmentaler26';
         src: url('fonts/emmentaler-26.woff') format('woff');
       }
       </style>
-      <script type="text/javascript" src="lib/score.js"></script>
-      <script type="text/javascript">
-
-
+      <!-- <script type="text/javascript" src="lib/score.js"></script> -->
+      <script type="module">
+        import { Score } from './lib/score.js';
+        import { lilypondParser } from './lib/lilypond_syntax.js';
 
 
         // var notesStaffOne = [
@@ -235,27 +235,29 @@
           staffs: [staffOne]
         };
 
-        var p = Presto.Score.from('example');
-        window.setTimeout(function () {
-          p.parse(score);
-          p.render();
-        },1);
+        var p = Score.from('example');
+        p.parse(score);
+        window.prestoScore = p;
+        p.render();
+        // window.setTimeout(function () {
+        //   ;
+        //   // p.render();
+        // },1);
 
         function codeDidChange () {
           console.log('codeDidChange');
           var code = document.getElementById('code').value;
           document.getElementById('errormessage').innerText = "";
-          var parsedScore = Presto.lilypondParser.parseLilypond(code);
+          var parsedScore = lilypondParser.parseLilypond(code);
           try {
             p.parse(parsedScore);
-            p.notate();
             p.render();
           }
           catch (e) {
             document.getElementById('errormessage').innerText = "WARNING: Syntax Error detected";
           }
         }
-
+        window.codeDidChange = codeDidChange;
         // window.setTimeout(function () {
         //   var c = document.getElementById('example');
         //   var ctx = c.getContext('2d');
